@@ -1,0 +1,1904 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Tasker AI — Productivity Engine</title>
+  
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Plus+Jakarta+Sans:ital,wght@0,600;0,700;0,800;1,800&display=swap" rel="stylesheet">
+
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            tasker: {
+              bg: '#090d16',
+              surface: '#131b2e',
+              'surface-variant': '#1e293b',
+              'surface-card': '#162035',
+              border: '#2a3b5c',
+              outline: '#384d75',
+              primary: '#a855f7',
+              'primary-hover': '#9333ea',
+              'primary-container': '#3b1861',
+              'on-primary-container': '#e9d5ff',
+              secondary: '#38bdf8',
+              accent: '#10b981',
+              text: '#f8fafc',
+              'text-muted': '#94a3b8',
+              'text-dim': '#64748b'
+            }
+          },
+          fontFamily: {
+            sans: ['Inter', 'system-ui', 'sans-serif'],
+            display: ['Plus Jakarta Sans', 'Inter', 'sans-serif']
+          }
+        }
+      }
+    }
+  </script>
+
+  <style>
+    body {
+      background-color: #090d16;
+      color: #f8fafc;
+      font-family: 'Inter', sans-serif;
+    }
+    .no-scrollbar::-webkit-scrollbar {
+      display: none;
+    }
+    .no-scrollbar {
+      -ms-overflow-style: none;
+      scrollbar-width: none;
+    }
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #2a3b5c;
+      border-radius: 9999px;
+    }
+  </style>
+
+  <!-- React 18 & ReactDOM -->
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+  
+  <!-- Babel for client-side JSX rendering when opened via file:// -->
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+
+  <!-- Canvas Confetti -->
+  <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.4/dist/confetti.browser.min.js"></script>
+</head>
+<body class="bg-tasker-bg text-tasker-text antialiased selection:bg-purple-500/30 selection:text-purple-200 min-h-screen">
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useMemo, useCallback, useRef } = React;
+
+    // --- TYPES & CONSTANTS ---
+    const PRIORITY_CONFIG = {
+      LOW: {
+        label: 'Low',
+        weight: 1,
+        bgClass: 'bg-sky-950/70 text-sky-300 border-sky-800/60',
+        accentBarColor: '#0369a1'
+      },
+      MEDIUM: {
+        label: 'Medium',
+        weight: 2,
+        bgClass: 'bg-amber-950/70 text-amber-300 border-amber-800/60',
+        accentBarColor: '#b45309'
+      },
+      HIGH: {
+        label: 'High',
+        weight: 3,
+        bgClass: 'bg-orange-950/70 text-orange-300 border-orange-800/60',
+        accentBarColor: '#c2410c'
+      },
+      URGENT: {
+        label: 'Urgent',
+        weight: 4,
+        bgClass: 'bg-rose-950/70 text-rose-300 border-rose-800/60',
+        accentBarColor: '#dc2626'
+      }
+    };
+
+    const RECURRENCE_LABELS = {
+      NONE: 'One-time',
+      DAILY: 'Daily',
+      WEEKLY: 'Weekly',
+      MONTHLY: 'Monthly',
+      YEARLY: 'Yearly'
+    };
+
+    const PRESET_COLORS = [
+      '#a855f7', '#38bdf8', '#10b981', '#f59e0b',
+      '#f43f5e', '#ec4899', '#6366f1', '#14b8a6'
+    ];
+
+    const DEFAULT_CATEGORIES = [
+      { id: 'cat_work', name: 'Work', color: '#a855f7' },
+      { id: 'cat_personal', name: 'Personal', color: '#38bdf8' },
+      { id: 'cat_health', name: 'Health', color: '#10b981' }
+    ];
+
+    const DEFAULT_TASKS = [
+      {
+        id: 'task_demo_1',
+        title: 'Explore Tasker AI & Goal Breakdown',
+        description: 'Tap the AI Goal button or use Smart Add to automatically decompose complex goals into daily milestones.',
+        dueDate: Date.now() + 1000 * 60 * 60 * 4,
+        priority: 'HIGH',
+        categoryId: 'cat_work',
+        isCompleted: false,
+        isRecurring: false,
+        recurrenceInterval: 'NONE',
+        hasAlarm: false,
+        sortOrder: 0,
+        createdAt: Date.now() - 1000 * 60 * 30,
+        subtasks: [
+          { id: 'sub_1', title: 'Open Settings and add your personal Gemini API key (BYOK)', isCompleted: false },
+          { id: 'sub_2', title: 'Try dictating a task with the microphone button', isCompleted: false },
+          { id: 'sub_3', title: 'Break down a major life goal with AI Goal Assistant', isCompleted: false }
+        ]
+      },
+      {
+        id: 'task_demo_2',
+        title: 'Daily Mindfulness & 30-min Workout',
+        description: 'Prioritize physical and mental clarity with recurring habits.',
+        dueDate: Date.now() + 1000 * 60 * 60 * 8,
+        priority: 'MEDIUM',
+        categoryId: 'cat_health',
+        isCompleted: false,
+        isRecurring: true,
+        recurrenceInterval: 'DAILY',
+        hasAlarm: true,
+        sortOrder: 1,
+        createdAt: Date.now() - 1000 * 60 * 60,
+        subtasks: [
+          { id: 'sub_4', title: '10-minute meditation session', isCompleted: true },
+          { id: 'sub_5', title: 'Core & cardio circuit', isCompleted: false }
+        ]
+      },
+      {
+        id: 'task_demo_3',
+        title: 'Review Weekly Financial Budget',
+        description: 'Track ongoing subscription costs and optimize savings allocation.',
+        dueDate: Date.now() + 1000 * 60 * 60 * 24 * 2,
+        priority: 'LOW',
+        categoryId: 'cat_personal',
+        isCompleted: false,
+        isRecurring: true,
+        recurrenceInterval: 'WEEKLY',
+        hasAlarm: false,
+        sortOrder: 2,
+        createdAt: Date.now() - 1000 * 60 * 120,
+        subtasks: []
+      }
+    ];
+
+    const DEFAULT_BYOK_CONFIG = {
+      apiKey: '',
+      model: 'gemini-3.6-flash',
+      isValidated: false,
+      demoAiUsesCount: 0
+    };
+
+    const ALLOWED_TASK_MODELS = ['gemini-3.6-flash', 'gemini-3.6-pro', 'gemini-3.6-flash-lite', 'gemini-3.6-flash-8b'];
+
+    // --- STORAGE SERVICE ---
+    const STORAGE_KEYS = {
+      TASKS: 'tasker_ai_tasks_v1',
+      CATEGORIES: 'tasker_ai_categories_v1',
+      BYOK_CONFIG: 'tasker_ai_byok_config_v1'
+    };
+
+    const storageService = {
+      getCategories() {
+        try {
+          const raw = localStorage.getItem(STORAGE_KEYS.CATEGORIES);
+          if (!raw) {
+            localStorage.setItem(STORAGE_KEYS.CATEGORIES, JSON.stringify(DEFAULT_CATEGORIES));
+            return DEFAULT_CATEGORIES;
+          }
+          return JSON.parse(raw);
+        } catch (e) {
+          return DEFAULT_CATEGORIES;
+        }
+      },
+      saveCategories(cats) {
+        localStorage.setItem(STORAGE_KEYS.CATEGORIES, JSON.stringify(cats));
+      },
+      addCategory(name, color) {
+        const cats = this.getCategories();
+        const newCat = {
+          id: 'cat_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
+          name: name.trim(),
+          color: color || '#a855f7'
+        };
+        cats.push(newCat);
+        this.saveCategories(cats);
+        return newCat;
+      },
+      updateCategory(updated) {
+        const cats = this.getCategories();
+        const idx = cats.findIndex(c => c.id === updated.id);
+        if (idx !== -1) {
+          cats[idx] = updated;
+          this.saveCategories(cats);
+        }
+      },
+      deleteCategory(id) {
+        const cats = this.getCategories().filter(c => c.id !== id);
+        this.saveCategories(cats);
+        const tasks = this.getTasks().map(t => t.categoryId === id ? { ...t, categoryId: null } : t);
+        this.saveTasks(tasks);
+      },
+      getTasks() {
+        try {
+          const raw = localStorage.getItem(STORAGE_KEYS.TASKS);
+          if (!raw) {
+            localStorage.setItem(STORAGE_KEYS.TASKS, JSON.stringify(DEFAULT_TASKS));
+            return DEFAULT_TASKS;
+          }
+          const parsed = JSON.parse(raw);
+          if (!Array.isArray(parsed)) return DEFAULT_TASKS;
+          return parsed.map(t => ({
+            ...t,
+            id: t.id || 'task_' + Math.random().toString(36).substring(2, 7),
+            title: t.title || 'Untitled Task',
+            description: t.description || '',
+            priority: t.priority || 'MEDIUM',
+            subtasks: Array.isArray(t.subtasks) ? t.subtasks : [],
+            isCompleted: Boolean(t.isCompleted),
+            isRecurring: Boolean(t.isRecurring),
+            recurrenceInterval: t.recurrenceInterval || 'NONE'
+          }));
+        } catch (e) {
+          return DEFAULT_TASKS;
+        }
+      },
+      saveTasks(tasks) {
+        localStorage.setItem(STORAGE_KEYS.TASKS, JSON.stringify(tasks));
+      },
+      addTask(taskData) {
+        const tasks = this.getTasks();
+        const newTask = {
+          ...taskData,
+          id: 'task_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
+          createdAt: Date.now(),
+          sortOrder: 0,
+          subtasks: taskData.subtasks || []
+        };
+        tasks.unshift(newTask);
+        this.saveTasks(tasks);
+        return newTask;
+      },
+      updateTask(task) {
+        const tasks = this.getTasks();
+        const idx = tasks.findIndex(t => t.id === task.id);
+        if (idx !== -1) {
+          tasks[idx] = task;
+          this.saveTasks(tasks);
+        }
+      },
+      deleteTask(id) {
+        const tasks = this.getTasks().filter(t => t.id !== id);
+        this.saveTasks(tasks);
+      },
+      toggleTask(id) {
+        const tasks = this.getTasks();
+        const idx = tasks.findIndex(t => t.id === id);
+        if (idx === -1) return {};
+        const current = tasks[idx];
+        const isDone = !current.isCompleted;
+        const updated = {
+          ...current,
+          isCompleted: isDone,
+          subtasks: isDone ? current.subtasks.map(s => ({ ...s, isCompleted: true })) : current.subtasks
+        };
+        tasks[idx] = updated;
+
+        let nextTask;
+        if (isDone && current.isRecurring && current.recurrenceInterval !== 'NONE') {
+          const nextDue = this.calcNextDue(current.dueDate, current.recurrenceInterval);
+          nextTask = {
+            ...current,
+            id: 'task_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
+            isCompleted: false,
+            dueDate: nextDue,
+            createdAt: Date.now(),
+            sortOrder: 0,
+            subtasks: current.subtasks.map(s => ({ ...s, isCompleted: false }))
+          };
+          tasks.unshift(nextTask);
+        }
+        this.saveTasks(tasks);
+        return { updated, nextTask };
+      },
+      toggleSubtask(taskId, subtaskId) {
+        const tasks = this.getTasks();
+        const idx = tasks.findIndex(t => t.id === taskId);
+        if (idx === -1) return;
+        const task = tasks[idx];
+        const subtasks = task.subtasks.map(s => s.id === subtaskId ? { ...s, isCompleted: !s.isCompleted } : s);
+        const allDone = subtasks.length > 0 && subtasks.every(s => s.isCompleted);
+        const wasCompleted = task.isCompleted;
+        const isNowCompleted = allDone ? true : task.isCompleted;
+
+        tasks[idx] = { ...task, subtasks, isCompleted: isNowCompleted };
+
+        if (!wasCompleted && isNowCompleted && task.isRecurring && task.recurrenceInterval !== 'NONE') {
+          const nextDue = this.calcNextDue(task.dueDate, task.recurrenceInterval);
+          const nextTask = {
+            ...task,
+            id: 'task_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
+            isCompleted: false,
+            dueDate: nextDue,
+            createdAt: Date.now(),
+            sortOrder: 0,
+            subtasks: task.subtasks.map(s => ({ ...s, isCompleted: false }))
+          };
+          tasks.unshift(nextTask);
+        }
+
+        this.saveTasks(tasks);
+      },
+      calcNextDue(currentMs, interval) {
+        const base = currentMs ? new Date(currentMs) : new Date();
+        const next = new Date(base.getTime());
+        if (interval === 'DAILY') next.setDate(next.getDate() + 1);
+        else if (interval === 'WEEKLY') next.setDate(next.getDate() + 7);
+        else if (interval === 'MONTHLY') next.setMonth(next.getMonth() + 1);
+        else if (interval === 'YEARLY') next.setFullYear(next.getFullYear() + 1);
+        return next.getTime();
+      },
+      clearCompleted() {
+        const active = this.getTasks().filter(t => !t.isCompleted);
+        this.saveTasks(active);
+      },
+      getBYOKConfig() {
+        try {
+          const raw = localStorage.getItem(STORAGE_KEYS.BYOK_CONFIG);
+          if (!raw) return DEFAULT_BYOK_CONFIG;
+          const parsed = JSON.parse(raw);
+          // Auto-migrate legacy/discontinued models to gemini-3.6-flash
+          if (!parsed.model || !ALLOWED_TASK_MODELS.includes(parsed.model)) {
+            parsed.model = 'gemini-3.6-flash';
+            localStorage.setItem(STORAGE_KEYS.BYOK_CONFIG, JSON.stringify(parsed));
+          }
+          return { ...DEFAULT_BYOK_CONFIG, ...parsed };
+        } catch (e) {
+          return DEFAULT_BYOK_CONFIG;
+        }
+      },
+      saveBYOKConfig(config) {
+        localStorage.setItem(STORAGE_KEYS.BYOK_CONFIG, JSON.stringify(config));
+      },
+      incrementDemoUses() {
+        const c = this.getBYOKConfig();
+        c.demoAiUsesCount = (c.demoAiUsesCount || 0) + 1;
+        this.saveBYOKConfig(c);
+        return c.demoAiUsesCount;
+      },
+      reset() {
+        localStorage.setItem(STORAGE_KEYS.CATEGORIES, JSON.stringify(DEFAULT_CATEGORIES));
+        localStorage.setItem(STORAGE_KEYS.TASKS, JSON.stringify(DEFAULT_TASKS));
+        localStorage.setItem(STORAGE_KEYS.BYOK_CONFIG, JSON.stringify(DEFAULT_BYOK_CONFIG));
+      }
+    };
+
+    // --- GEMINI SERVICE ---
+    const geminiService = {
+      async listAvailableModels(apiKey) {
+        const fallbackList = [
+          { id: 'gemini-3.6-flash', name: 'Gemini 3.6 Flash (Recommended - Fastest & High Accuracy)' },
+          { id: 'gemini-3.6-pro', name: 'Gemini 3.6 Pro (Advanced Reasoning & Goal Breakdown)' },
+          { id: 'gemini-3.6-flash-lite', name: 'Gemini 3.6 Flash Lite (Ultra-Low Latency)' },
+          { id: 'gemini-3.6-flash-8b', name: 'Gemini 3.6 Flash 8B (Lightweight Efficiency)' }
+        ];
+
+        if (!apiKey || apiKey.trim().length < 10) return fallbackList;
+
+        try {
+          const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey.trim()}`);
+          if (!res.ok) return fallbackList;
+          const data = await res.json();
+          if (!Array.isArray(data.models)) return fallbackList;
+
+          const models = data.models
+            .filter((m) => {
+              const id = (m.name || '').replace(/^models\//, '').toLowerCase();
+              const hasGenContent = Array.isArray(m.supportedGenerationMethods) && m.supportedGenerationMethods.includes('generateContent');
+              return hasGenContent && (id.includes('3.6') || id.includes('3-6'));
+            })
+            .map((m) => {
+              const id = m.name.replace(/^models\//, '');
+              const displayName = m.displayName || id;
+              return { id, name: `${displayName} (${id})` };
+            });
+
+          return models.length > 0 ? models : fallbackList;
+        } catch (e) {
+          return fallbackList;
+        }
+      },
+      async validateKey(apiKey, model = 'gemini-3.6-flash') {
+        if (!apiKey || apiKey.trim().length < 15) {
+          return { valid: false, error: 'API key is too short or invalid format.' };
+        }
+        const cleanKey = apiKey.trim();
+
+        // 1. Query Google ModelService.ListModels for Gemini 3.6 models
+        let modelsList = await this.listAvailableModels(cleanKey);
+
+        // 2. Select authorized model (default to gemini-3.6-flash)
+        const cleanRequested = (model && model.includes('3.6')) ? model : 'gemini-3.6-flash';
+        const requestedMatch = modelsList.find((m) => m.id === cleanRequested);
+        const chosen = requestedMatch?.id || modelsList[0].id || 'gemini-3.6-flash';
+
+        // 3. Ping test with chosen Gemini 3.6 model
+        try {
+          const pingRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${chosen}:generateContent?key=${cleanKey}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              contents: [{ parts: [{ text: 'Ping test: Reply "OK"' }] }]
+            })
+          });
+          if (pingRes.ok) {
+            return { valid: true, resolvedModel: chosen, availableModels: modelsList };
+          } else {
+            const errData = await pingRes.json().catch(() => ({}));
+            const msg = errData.error?.message || `HTTP ${pingRes.status}: ${pingRes.statusText}`;
+            if (pingRes.status === 400 && msg.toLowerCase().includes('api_key_invalid')) {
+              return { valid: false, error: 'Invalid API Key. Please check your key in Google AI Studio.' };
+            }
+            if (chosen !== 'gemini-3.6-flash') {
+              return { valid: true, resolvedModel: 'gemini-3.6-flash', availableModels: modelsList };
+            }
+            return { valid: false, error: msg };
+          }
+        } catch (e) {
+          return { valid: true, resolvedModel: chosen, availableModels: modelsList };
+        }
+      },
+      async parseSmartTask(input, config) {
+        if (config.apiKey && config.isValidated) {
+          const cleanModel = (config.model && config.model.includes('3.6')) ? config.model : 'gemini-3.6-flash';
+          const candidateModels = [
+            cleanModel,
+            'gemini-3.6-flash',
+            'gemini-3.6-pro',
+            'gemini-3.6-flash-lite',
+            'gemini-3.6-flash-8b'
+          ].filter((m, idx, arr) => m && arr.indexOf(m) === idx);
+
+          const today = new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+          const systemPrompt = `You are an intelligent task parsing AI for Tasker AI. Reference Date: ${today}.
+Extract structured task metadata from natural language. Return ONLY a JSON object:
+{ "title": string, "description": string, "dueDateOffsetDays": number, "priority": "LOW"|"MEDIUM"|"HIGH"|"URGENT", "isRecurring": boolean, "recurrenceInterval": "NONE"|"DAILY"|"WEEKLY"|"MONTHLY"|"YEARLY" }`;
+
+          for (const modelToTry of candidateModels) {
+            try {
+              const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${modelToTry}:generateContent?key=${config.apiKey.trim()}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  contents: [{ parts: [{ text: `${systemPrompt}\n\nParse task: "${input}"` }] }]
+                })
+              });
+              if (res.ok) {
+                const data = await res.json();
+                let text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+                text = text.replace(/```json/g, '').replace(/```/g, '').trim();
+                const parsed = JSON.parse(text);
+                let due = null;
+                if (parsed.dueDateOffsetDays !== undefined) {
+                  const d = new Date();
+                  d.setDate(d.getDate() + Number(parsed.dueDateOffsetDays));
+                  due = d.getTime();
+                }
+                return {
+                  title: parsed.title || input.trim(),
+                  description: parsed.description || '',
+                  dueDate: due,
+                  priority: parsed.priority || 'MEDIUM',
+                  isRecurring: Boolean(parsed.isRecurring),
+                  recurrenceInterval: parsed.recurrenceInterval || 'NONE'
+                };
+              }
+            } catch (e) {
+              console.warn(`Model ${modelToTry} failed, trying fallback...`, e);
+            }
+          }
+        }
+        // Heuristic fallback
+        const lower = input.toLowerCase();
+        let prio = 'MEDIUM';
+        if (lower.includes('urgent') || lower.includes('asap')) prio = 'URGENT';
+        else if (lower.includes('high') || lower.includes('important')) prio = 'HIGH';
+        else if (lower.includes('low')) prio = 'LOW';
+
+        let isRec = lower.includes('daily') || lower.includes('every day') || lower.includes('weekly');
+        let recInt = lower.includes('weekly') ? 'WEEKLY' : isRec ? 'DAILY' : 'NONE';
+        const d = new Date();
+        if (lower.includes('tomorrow')) d.setDate(d.getDate() + 1);
+        else if (lower.includes('next week')) d.setDate(d.getDate() + 7);
+
+        return {
+          title: input.replace(/(daily|weekly|tomorrow|urgent|asap)/gi, '').trim() || input.trim(),
+          description: 'Smart Added (Heuristic engine)',
+          dueDate: d.getTime(),
+          priority: prio,
+          isRecurring: isRec,
+          recurrenceInterval: recInt
+        };
+      },
+      async generateGoalBreakdown(goalPrompt, config) {
+        if (config.apiKey && config.isValidated) {
+          const cleanModel = (config.model && config.model.includes('3.6')) ? config.model : 'gemini-3.6-flash';
+          const candidateModels = [
+            cleanModel,
+            'gemini-3.6-flash',
+            'gemini-3.6-pro',
+            'gemini-3.6-flash-lite',
+            'gemini-3.6-flash-8b'
+          ].filter((m, idx, arr) => m && arr.indexOf(m) === idx);
+
+          const today = new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+          const systemPrompt = `You are a Principal Productivity Architect in Tasker AI. Reference Date: ${today}.
+Break down user goal into 3-5 sequential actionable milestones. Return ONLY a JSON array:
+[ { "title": string, "description": string, "dueDateOffsetDays": number, "priority": "LOW"|"MEDIUM"|"HIGH"|"URGENT", "subtasks": string[] } ]`;
+
+          for (const modelToTry of candidateModels) {
+            try {
+              const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${modelToTry}:generateContent?key=${config.apiKey.trim()}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  contents: [{ parts: [{ text: `${systemPrompt}\n\nGoal: "${goalPrompt}"` }] }]
+                })
+              });
+              if (res.ok) {
+                const data = await res.json();
+                let text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+                text = text.replace(/```json/g, '').replace(/```/g, '').trim();
+                const arr = JSON.parse(text);
+                if (Array.isArray(arr)) {
+                  const now = Date.now();
+                  return arr.map((item, i) => ({
+                    title: item.title || `Milestone ${i+1}`,
+                    description: item.description || '',
+                    dueDate: now + (item.dueDateOffsetDays || i+1) * 86400000,
+                    priority: item.priority || 'MEDIUM',
+                    isRecurring: false,
+                    recurrenceInterval: 'NONE',
+                    subtaskTitles: Array.isArray(item.subtasks) ? item.subtasks : []
+                  }));
+                }
+              }
+            } catch (e) {
+              console.warn(`Goal breakdown on ${modelToTry} failed, trying fallback...`, e);
+            }
+          }
+        }
+        // Heuristic fallback
+        const now = Date.now();
+        return [
+          {
+            title: `Phase 1: Research & Scope "${goalPrompt.slice(0, 30)}..."`,
+            description: 'Define clear milestones, core requirements, and resources.',
+            dueDate: now + 86400000,
+            priority: 'HIGH',
+            isRecurring: false,
+            recurrenceInterval: 'NONE',
+            subtaskTitles: ['List top 3 non-negotiable deliverables', 'Identify potential blockers', 'Establish timeline']
+          },
+          {
+            title: 'Phase 2: Execution & MVP Building',
+            description: 'Implement foundational tasks and validate progress.',
+            dueDate: now + 3 * 86400000,
+            priority: 'HIGH',
+            isRecurring: false,
+            recurrenceInterval: 'NONE',
+            subtaskTitles: ['Complete initial prototype draft', 'Checkpoint review', 'Refine with feedback']
+          },
+          {
+            title: 'Phase 3: Final Polish & Delivery',
+            description: 'Perform quality assurance and mark goal achieved.',
+            dueDate: now + 6 * 86400000,
+            priority: 'MEDIUM',
+            isRecurring: false,
+            recurrenceInterval: 'NONE',
+            subtaskTitles: ['Audit final checklist', 'Document learnings', 'Celebrate completion']
+          }
+        ];
+      }
+    };
+
+    // --- MAIN APP COMPONENT ---
+    function App() {
+      const [tasks, setTasks] = useState([]);
+      const [categories, setCategories] = useState([]);
+      const [byokConfig, setByokConfig] = useState(DEFAULT_BYOK_CONFIG);
+      const [currentScreen, setCurrentScreen] = useState('DASHBOARD');
+      const [selectedCategoryId, setSelectedCategoryId] = useState(null);
+      const [selectedPriority, setSelectedPriority] = useState(null);
+      const [searchQuery, setSearchQuery] = useState('');
+      const [selectedDate, setSelectedDate] = useState(() => {
+        const d = new Date(); d.setHours(0,0,0,0); return d.getTime();
+      });
+
+      // Modals
+      const [isAddEditOpen, setIsAddEditOpen] = useState(false);
+      const [editingTask, setEditingTask] = useState(null);
+      const [isAiModalOpen, setIsAiModalOpen] = useState(false);
+      const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+      const [isUpgradeOpen, setIsUpgradeOpen] = useState(false);
+      const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
+      const [editingCat, setEditingCat] = useState(null);
+      const [catNameInput, setCatNameInput] = useState('');
+      const [catColorInput, setCatColorInput] = useState(PRESET_COLORS[0]);
+
+      // Goal / Smart Add state
+      const [smartInput, setSmartInput] = useState('');
+      const [isAiLoading, setIsAiLoading] = useState(false);
+      const [isRecording, setIsRecording] = useState(false);
+      const recognitionRef = useRef(null);
+
+      // Toast notification
+      const [toast, setToast] = useState(null);
+
+      const showToast = (msg, type = 'info') => {
+        setToast({ msg, type });
+        setTimeout(() => setToast(null), 4000);
+      };
+
+      const loadData = () => {
+        setTasks(storageService.getTasks());
+        setCategories(storageService.getCategories());
+        setByokConfig(storageService.getBYOKConfig());
+      };
+
+      useEffect(() => {
+        loadData();
+        // Web Speech API
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (SpeechRecognition) {
+          const rec = new SpeechRecognition();
+          rec.continuous = false;
+          rec.lang = 'en-US';
+          rec.onresult = (e) => {
+            const transcript = e.results[0][0].transcript;
+            if (transcript) setSmartInput(prev => prev ? `${prev} ${transcript}` : transcript);
+          };
+          rec.onend = () => setIsRecording(false);
+          recognitionRef.current = rec;
+        }
+      }, []);
+
+      const currentTier = useMemo(() => {
+        if (byokConfig.apiKey && byokConfig.isValidated) return 'BYOK_UNLOCKED';
+        return 'FREE_DEMO';
+      }, [byokConfig]);
+
+      const isCategoryLimitReached = currentTier === 'FREE_DEMO' && categories.length >= 3;
+
+      const getLocalDateString = (ms) => {
+        if (!ms) return '';
+        const d = new Date(ms);
+        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      };
+
+      const isDateMatching = (task, filterDateMs) => {
+        if (!filterDateMs) return true; // All dates mode
+        const filterDateStr = getLocalDateString(filterDateMs);
+        const todayStr = getLocalDateString(Date.now());
+
+        if (!task.dueDate) {
+          return filterDateStr === todayStr;
+        }
+
+        const taskDateStr = getLocalDateString(task.dueDate);
+
+        if (taskDateStr === filterDateStr) return true;
+
+        // Overdue active tasks show on Today
+        if (filterDateStr === todayStr && !task.isCompleted && taskDateStr < todayStr) {
+          return true;
+        }
+
+        return false;
+      };
+
+      const filteredTasks = useMemo(() => {
+        return tasks.filter(task => {
+          const matchCat = selectedCategoryId === null || task.categoryId === selectedCategoryId;
+          const matchPrio = selectedPriority === null || task.priority === selectedPriority;
+          const matchSearch = !searchQuery.trim() ||
+            task.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+            task.description.toLowerCase().includes(searchQuery.toLowerCase());
+          const matchDate = isDateMatching(task, selectedDate);
+          return matchCat && matchPrio && matchSearch && matchDate;
+        }).sort((a, b) => {
+          if (!a.isCompleted && b.isCompleted) return -1;
+          if (a.isCompleted && !b.isCompleted) return 1;
+          return (a.sortOrder || 0) - (b.sortOrder || 0);
+        });
+      }, [tasks, selectedCategoryId, selectedPriority, searchQuery, selectedDate]);
+
+      const activeTasks = useMemo(() => tasks.filter(t => !t.isCompleted), [tasks]);
+      const completedTasks = useMemo(() => tasks.filter(t => t.isCompleted), [tasks]);
+
+      const progress = tasks.length > 0 ? completedTasks.length / tasks.length : 0;
+
+      // Handlers
+      const handleToggleComplete = (id) => {
+        const { updated } = storageService.toggleTask(id);
+        loadData();
+        if (updated?.isCompleted) {
+          showToast(`Completed: "${updated.title}"`, 'success');
+          if (activeTasks.length <= 1 && window.confetti) {
+            window.confetti({ particleCount: 75, spread: 60, origin: { y: 0.6 } });
+          }
+        }
+      };
+
+      const handleSmartAdd = async (e) => {
+        if (e) e.preventDefault();
+        if (!smartInput.trim() || isAiLoading) return;
+        
+        if (currentTier === 'FREE_DEMO' && byokConfig.demoAiUsesCount >= 3) {
+          setIsUpgradeOpen(true);
+          return;
+        }
+
+        setIsAiLoading(true);
+        const text = smartInput;
+        setSmartInput('');
+        try {
+          const parsed = await geminiService.parseSmartTask(text, byokConfig);
+          storageService.addTask({
+            ...parsed,
+            categoryId: selectedCategoryId,
+            isCompleted: false,
+            hasAlarm: false,
+            subtasks: []
+          });
+          if (currentTier === 'FREE_DEMO') storageService.incrementDemoUses();
+          loadData();
+          showToast(`Smart Task Added: "${parsed.title}"`, 'success');
+        } catch (err) {
+          showToast('Failed to add smart task', 'error');
+        } finally {
+          setIsAiLoading(false);
+        }
+      };
+
+      const toggleVoice = () => {
+        if (!recognitionRef.current) {
+          alert('Voice dictation not supported in this browser.');
+          return;
+        }
+        if (isRecording) {
+          recognitionRef.current.stop();
+          setIsRecording(false);
+        } else {
+          try {
+            recognitionRef.current.start();
+            setIsRecording(true);
+          } catch(e) {
+            setIsRecording(false);
+          }
+        }
+      };
+
+      const dates = useMemo(() => {
+        const list = [];
+        const today = new Date(); today.setHours(0,0,0,0);
+        for (let i = 0; i < 7; i++) {
+          const d = new Date(today);
+          d.setDate(today.getDate() + i);
+          list.push({
+            ms: d.getTime(),
+            label: i === 0 ? 'Today' : i === 1 ? 'Tmw' : d.toLocaleDateString('en-US', { weekday: 'short' }),
+            sub: d.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric' })
+          });
+        }
+        return list;
+      }, []);
+
+      return (
+        <div className="min-h-screen bg-tasker-bg text-tasker-text flex flex-col font-sans selection:bg-purple-500/30">
+          {/* Top Bar */}
+          <header className="sticky top-0 z-40 bg-tasker-bg/95 backdrop-blur-md border-b border-slate-800 shadow-md">
+            <div className="max-w-3xl mx-auto px-4 py-3 flex items-center justify-between">
+              {currentScreen === 'COMPLETED_HISTORY' ? (
+                <button
+                  onClick={() => setCurrentScreen('DASHBOARD')}
+                  className="px-2.5 py-1.5 rounded-xl bg-slate-800 text-xs font-bold text-purple-300"
+                >
+                  ← Dashboard
+                </button>
+              ) : (
+                <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-purple-600 to-indigo-600 flex items-center justify-center text-white font-bold text-sm shadow-md">
+                  ✓
+                </div>
+              )}
+
+              <div className="flex flex-col items-center text-center">
+                <span className="text-[10px] font-extrabold tracking-[0.2em] text-purple-400 uppercase font-display">
+                  {currentScreen === 'DASHBOARD' ? 'PRODUCTIVITY ENGINE' : 'HISTORY ARCHIVE'}
+                </span>
+                <h1 className="text-lg font-extrabold tracking-tight text-slate-100 font-display">
+                  Tasker <span className="italic font-black text-purple-400">AI</span>
+                </h1>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setIsUpgradeOpen(true)}
+                  className={`px-2.5 py-1 rounded-xl text-[11px] font-bold border transition-all ${
+                    currentTier === 'BYOK_UNLOCKED' ? 'bg-emerald-950/60 border-emerald-500/50 text-emerald-300' :
+                    'bg-amber-950/60 border-amber-500/50 text-amber-300'
+                  }`}
+                  title="Unlock Full Features with Free BYOK"
+                >
+                  {currentTier === 'BYOK_UNLOCKED' ? 'BYOK Free' : 'Free Demo'}
+                </button>
+
+                {currentScreen === 'DASHBOARD' && (
+                  <button
+                    onClick={() => setCurrentScreen('COMPLETED_HISTORY')}
+                    className="p-2 rounded-xl text-slate-400 hover:text-slate-100 hover:bg-slate-800"
+                    title="History Archive"
+                  >
+                    🕒
+                  </button>
+                )}
+
+                <button
+                  onClick={() => setIsSettingsOpen(true)}
+                  className="p-2 rounded-xl text-slate-400 hover:text-purple-300 hover:bg-slate-800"
+                  title="Settings & API Key"
+                >
+                  ⚙️
+                </button>
+              </div>
+            </div>
+          </header>
+
+          {/* Main Container */}
+          <main className="flex-1 max-w-3xl w-full mx-auto flex flex-col gap-3 p-4 pb-24">
+            {currentScreen === 'DASHBOARD' ? (
+              <>
+                {/* Focus Summary Card */}
+                <div className="rounded-2xl border border-slate-800 bg-gradient-to-r from-purple-950/40 via-slate-900/60 to-cyan-950/30 p-5 shadow-lg">
+                  <div className="flex items-center justify-between gap-4">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-bold uppercase tracking-wider text-purple-400">Today's Focus</span>
+                        <span className="text-xs text-purple-300">✨</span>
+                      </div>
+                      <h2 className="text-lg font-bold text-slate-100 mt-1">
+                        {tasks.length === 0 ? 'No tasks yet. Start below!' :
+                         completedTasks.length === tasks.length ? '🎉 All tasks completed! Great work!' :
+                         `${completedTasks.length} of ${tasks.length} tasks completed`}
+                      </h2>
+                      <div className="w-full bg-slate-800 rounded-full h-2 mt-3 overflow-hidden border border-slate-700/40">
+                        <div className="bg-gradient-to-r from-purple-500 to-cyan-400 h-full rounded-full transition-all duration-500" style={{ width: `${Math.round(progress * 100)}%` }} />
+                      </div>
+                    </div>
+                    <div className="w-12 h-12 rounded-full border-2 border-purple-500/80 flex items-center justify-center font-extrabold text-xs text-slate-100">
+                      {Math.round(progress * 100)}%
+                    </div>
+                  </div>
+                </div>
+
+                {/* Free Demo Quota Banner */}
+                {currentTier === 'FREE_DEMO' && (
+                  <div className="flex items-center justify-between px-3.5 py-2 rounded-xl bg-slate-900/80 border border-slate-800 text-xs">
+                    <span className="text-slate-300">
+                      ⚡ Free Demo: <strong className="text-amber-300">{Math.max(0, 3 - byokConfig.demoAiUsesCount)}</strong> AI trial uses left
+                    </span>
+                    <button onClick={() => setIsUpgradeOpen(true)} className="text-xs font-semibold text-purple-400 hover:text-purple-300 underline">
+                      Unlock BYOK →
+                    </button>
+                  </div>
+                )}
+
+                {/* Smart Add NLP Input */}
+                <form onSubmit={handleSmartAdd} className="relative flex items-center w-full">
+                  <span className="absolute left-3.5 text-purple-400">✨</span>
+                  <input
+                    type="text"
+                    value={smartInput}
+                    onChange={(e) => setSmartInput(e.target.value)}
+                    disabled={isAiLoading}
+                    placeholder="Smart Add (e.g. Sync review tomorrow at 2 PM with high priority)"
+                    className="w-full pl-10 pr-24 py-3 rounded-2xl bg-tasker-surface border border-slate-700/80 text-sm text-slate-100 placeholder-slate-400 focus:outline-none focus:border-purple-500"
+                  />
+                  <div className="absolute right-2.5 flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={toggleVoice}
+                      className={`p-1.5 rounded-xl ${isRecording ? 'bg-rose-600 text-white animate-pulse' : 'text-slate-400 hover:text-slate-200'}`}
+                      title="Dictate with voice"
+                    >
+                      🎤
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={!smartInput.trim() || isAiLoading}
+                      className="p-1.5 rounded-xl bg-purple-600 hover:bg-purple-500 disabled:opacity-40 text-white font-bold"
+                    >
+                      ➔
+                    </button>
+                  </div>
+                </form>
+
+                {/* Search & AI Goal Trigger */}
+                <div className="flex items-center gap-2">
+                  <div className="relative flex-1">
+                    <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 text-xs">🔍</span>
+                    <input
+                      type="text"
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      placeholder="Search tasks..."
+                      className="w-full pl-9 pr-8 py-2.5 rounded-xl bg-tasker-surface border border-slate-800 text-xs text-slate-200 focus:outline-none"
+                    />
+                    {searchQuery && (
+                      <button onClick={() => setSearchQuery('')} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 text-xs">✕</button>
+                    )}
+                  </div>
+                  <button
+                    onClick={() => setIsAiModalOpen(true)}
+                    className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 text-white text-xs font-bold shadow-md shrink-0"
+                  >
+                    🎯 <span>AI Goal</span>
+                  </button>
+                </div>
+
+                {/* Categories Bar */}
+                <div className="flex items-center gap-2 overflow-x-auto py-1 no-scrollbar">
+                  <button
+                    onClick={() => setSelectedCategoryId(null)}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-semibold shrink-0 ${selectedCategoryId === null ? 'bg-purple-600 border-purple-500 text-white' : 'bg-slate-900 border-slate-800 text-slate-300'}`}
+                  >
+                    <span>All</span>
+                    <span className="px-1.5 py-0.2 rounded-full bg-slate-800 text-[10px]">{tasks.length}</span>
+                  </button>
+
+                  {categories.map((cat) => (
+                    <div
+                      key={cat.id}
+                      onClick={() => setSelectedCategoryId(cat.id)}
+                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-medium cursor-pointer shrink-0 ${selectedCategoryId === cat.id ? 'bg-purple-950 border-purple-500 text-purple-200' : 'bg-slate-900 border-slate-800 text-slate-300'}`}
+                    >
+                      <span className="w-2 h-2 rounded-full" style={{ backgroundColor: cat.color || '#a855f7' }} />
+                      <span>{cat.name}</span>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setEditingCat(cat);
+                          setCatNameInput(cat.name);
+                          setCatColorInput(cat.color || PRESET_COLORS[0]);
+                          setIsCategoryModalOpen(true);
+                        }}
+                        className="text-slate-500 hover:text-slate-200 text-[10px] ml-1"
+                      >
+                        ✎
+                      </button>
+                    </div>
+                  ))}
+
+                  <button
+                    onClick={() => {
+                      if (isCategoryLimitReached) {
+                        setIsUpgradeOpen(true);
+                      } else {
+                        setEditingCat(null);
+                        setCatNameInput('');
+                        setCatColorInput(PRESET_COLORS[0]);
+                        setIsCategoryModalOpen(true);
+                      }
+                    }}
+                    className={`px-3 py-1.5 rounded-xl border border-dashed text-xs shrink-0 ${isCategoryLimitReached ? 'border-amber-500/50 text-amber-400' : 'border-slate-700 text-slate-400 hover:border-purple-400'}`}
+                  >
+                    {isCategoryLimitReached ? '🔒 3/3 Max' : '+ New Category'}
+                  </button>
+                </div>
+
+                {/* Priority Row */}
+                <div className="flex items-center gap-1.5 overflow-x-auto py-1 no-scrollbar text-xs">
+                  <span className="text-slate-500 text-[10px] font-bold uppercase mr-1">Priority:</span>
+                  <button
+                    onClick={() => setSelectedPriority(null)}
+                    className={`px-2.5 py-1 rounded-lg border text-xs ${selectedPriority === null ? 'bg-slate-700 text-white font-semibold' : 'bg-slate-900 border-slate-800 text-slate-400'}`}
+                  >
+                    Any
+                  </button>
+                  {['LOW', 'MEDIUM', 'HIGH', 'URGENT'].map((p) => (
+                    <button
+                      key={p}
+                      onClick={() => setSelectedPriority(selectedPriority === p ? null : p)}
+                      className={`px-2.5 py-1 rounded-lg border text-xs ${selectedPriority === p ? `${PRIORITY_CONFIG[p].bgClass} font-semibold ring-1 ring-purple-500` : 'bg-slate-900 border-slate-800 text-slate-400'}`}
+                    >
+                      {PRIORITY_CONFIG[p].label}
+                    </button>
+                  ))}
+                </div>
+
+                {/* 7-Day Date Strip + All Dates */}
+                <div className="flex items-center gap-2 overflow-x-auto py-1 no-scrollbar">
+                  <span className="text-slate-500 text-[10px] font-bold uppercase mr-1 shrink-0">Focus:</span>
+                  <button
+                    onClick={() => setSelectedDate(null)}
+                    className={`flex items-center px-3 py-2 rounded-xl border text-xs font-semibold shrink-0 transition-all ${selectedDate === null ? 'bg-purple-600 border-purple-400 text-white font-bold' : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200'}`}
+                  >
+                    All Dates
+                  </button>
+                  {dates.map((d) => {
+                    const isSel = selectedDate !== null && getLocalDateString(d.ms) === getLocalDateString(selectedDate);
+                    const countForDay = tasks.filter(t => isDateMatching(t, d.ms) && !t.isCompleted).length;
+                    return (
+                      <button
+                        key={d.ms}
+                        onClick={() => setSelectedDate(d.ms)}
+                        className={`flex flex-col items-center px-3 py-1.5 rounded-xl border text-xs shrink-0 transition-all ${isSel ? 'bg-purple-600 border-purple-400 text-white font-bold ring-2 ring-purple-500/50' : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200'}`}
+                      >
+                        <div className="flex items-center gap-1">
+                          <span>{d.label}</span>
+                          {countForDay > 0 && (
+                            <span className={`px-1 rounded-full text-[9px] font-bold ${isSel ? 'bg-purple-800 text-purple-100' : 'bg-slate-800 text-purple-400 border border-slate-700'}`}>
+                              {countForDay}
+                            </span>
+                          )}
+                        </div>
+                        <span className="text-[10px] opacity-70">{d.sub}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Tasks List */}
+                <div className="flex flex-col gap-3 mt-2">
+                  {filteredTasks.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center p-8 text-center bg-slate-900/40 rounded-2xl border border-slate-800">
+                      <span className="text-3xl mb-2">🎉</span>
+                      <h3 className="text-base font-bold text-slate-100">All Caught Up!</h3>
+                      <p className="text-xs text-slate-400 mt-1 max-w-xs">No tasks match your filters. Add a task or generate with AI.</p>
+                      <div className="flex gap-2 mt-4">
+                        <button onClick={() => setIsAiModalOpen(true)} className="px-3.5 py-1.5 rounded-xl bg-purple-950 border border-purple-800 text-xs font-semibold text-purple-300">
+                          ✨ Generate with AI
+                        </button>
+                        <button onClick={() => { setEditingTask(null); setIsAddEditOpen(true); }} className="px-3.5 py-1.5 rounded-xl bg-purple-600 text-white text-xs font-bold">
+                          + New Task
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    filteredTasks.map((task) => {
+                      const prio = PRIORITY_CONFIG[task.priority] || PRIORITY_CONFIG.MEDIUM;
+                      const hasAccent = !task.isCompleted && (task.priority === 'HIGH' || task.priority === 'URGENT');
+                      const cat = categories.find(c => c.id === task.categoryId);
+
+                      return (
+                        <div
+                          key={task.id}
+                          className={`flex overflow-hidden rounded-2xl border transition-all ${task.isCompleted ? 'bg-slate-950/50 border-slate-800/70 opacity-60' : 'bg-tasker-surface border-slate-800 shadow-md'}`}
+                        >
+                          {hasAccent && (
+                            <div className="w-1.5 -ml-4 -my-4 mr-3 shrink-0" style={{ backgroundColor: prio.accentBarColor }} />
+                          )}
+                          <div className="flex-1 flex flex-col gap-2">
+                            <div className="flex items-start gap-3">
+                              <button
+                                onClick={() => handleToggleComplete(task.id)}
+                                className={`mt-0.5 w-5 h-5 rounded-lg border flex items-center justify-center shrink-0 transition-all active:scale-90 ${task.isCompleted ? 'bg-purple-600 border-purple-500 text-white shadow-sm' : 'border-slate-600 bg-slate-800 hover:border-purple-400'}`}
+                              >
+                                {task.isCompleted && '✓'}
+                              </button>
+                              <div className="flex-1 min-w-0">
+                                <h3
+                                  style={{ textDecoration: task.isCompleted ? 'line-through' : 'none' }}
+                                  className={`text-sm font-semibold tracking-tight ${task.isCompleted ? 'text-slate-500 line-through font-normal' : 'text-slate-100'}`}
+                                >
+                                  {task.title}
+                                </h3>
+                                {task.description && (
+                                  <p
+                                    style={{ textDecoration: task.isCompleted ? 'line-through' : 'none' }}
+                                    className={`text-xs mt-0.5 leading-relaxed ${task.isCompleted ? 'text-slate-600 line-through' : 'text-slate-400'}`}
+                                  >
+                                    {task.description}
+                                  </p>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-1 shrink-0">
+                                <button
+                                  onClick={() => { setEditingTask(task); setIsAddEditOpen(true); }}
+                                  className="p-1 text-slate-500 hover:text-slate-200 text-xs"
+                                  title="Edit Task"
+                                >
+                                  ✎
+                                </button>
+                                <button
+                                  onClick={() => { storageService.deleteTask(task.id); loadData(); showToast('Task deleted'); }}
+                                  className="p-1 text-slate-500 hover:text-rose-400 text-xs"
+                                  title="Delete Task"
+                                >
+                                  🗑
+                                </button>
+                              </div>
+                            </div>
+
+                            {/* Subtasks checklist */}
+                            {task.subtasks?.length > 0 && (
+                              <div className="pl-8 flex flex-col gap-1 mt-1 border-l-2 border-slate-800">
+                                {task.subtasks.map((st) => (
+                                  <label key={st.id} className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
+                                    <input
+                                      type="checkbox"
+                                      checked={st.isCompleted}
+                                      onChange={() => { storageService.toggleSubtask(task.id, st.id); loadData(); }}
+                                      className="rounded bg-slate-800 border-slate-700 text-purple-600"
+                                    />
+                                    <span
+                                      style={{ textDecoration: st.isCompleted ? 'line-through' : 'none' }}
+                                      className={st.isCompleted ? 'line-through text-slate-500' : ''}
+                                    >
+                                      {st.title}
+                                    </span>
+                                  </label>
+                                ))}
+                              </div>
+                            )}
+
+                            {/* Badges */}
+                            <div className="flex flex-wrap items-center gap-1.5 pl-8 text-[10px] font-medium">
+                              <span className={`px-2 py-0.5 rounded border ${prio.bgClass}`}>{prio.label}</span>
+                              {cat && (
+                                <span className="px-2 py-0.5 rounded border" style={{ borderColor: `${cat.color}40`, color: cat.color }}>
+                                  {cat.name}
+                                </span>
+                              )}
+                              {task.isRecurring && task.recurrenceInterval !== 'NONE' && (
+                                <span className="px-2 py-0.5 rounded bg-purple-950/40 border border-purple-800 text-purple-300">
+                                  🔁 {RECURRENCE_LABELS[task.recurrenceInterval]}
+                                </span>
+                              )}
+                              {task.dueDate && (
+                                <span className="px-2 py-0.5 rounded bg-slate-850 border border-slate-700 text-slate-300">
+                                  📅 {new Date(task.dueDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </>
+            ) : (
+              /* Completed History Screen */
+              <div className="flex flex-col gap-3">
+                <div className="flex items-center justify-between py-2 border-b border-slate-800">
+                  <span className="text-xs font-bold uppercase text-slate-400">Completed History ({completedTasks.length})</span>
+                  {completedTasks.length > 0 && (
+                    <button
+                      onClick={() => { storageService.clearCompleted(); loadData(); showToast('History cleared'); }}
+                      className="px-3 py-1 rounded-xl bg-rose-950/40 border border-rose-800 text-rose-300 text-xs font-semibold"
+                    >
+                      Clear All
+                    </button>
+                  )}
+                </div>
+
+                {completedTasks.length === 0 ? (
+                  <div className="text-center p-8 text-slate-400 text-xs">No completed tasks in history.</div>
+                ) : (
+                  completedTasks.map((task) => (
+                    <div key={task.id} className="flex items-center justify-between p-3.5 rounded-2xl bg-slate-900/60 border border-slate-800">
+                      <div className="flex items-center gap-2.5">
+                        <span className="text-emerald-400">✓</span>
+                        <div>
+                          <h4 className="text-xs font-semibold text-slate-300 line-through">{task.title}</h4>
+                          <span className="text-[10px] text-slate-500">
+                            {new Date(task.createdAt).toLocaleDateString()}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="flex gap-1.5">
+                        <button
+                          onClick={() => { storageService.updateTask({ ...task, isCompleted: false }); loadData(); showToast('Restored task'); }}
+                          className="px-2 py-1 bg-slate-800 text-slate-300 text-xs rounded-lg"
+                          title="Restore task"
+                        >
+                          ↩
+                        </button>
+                        <button
+                          onClick={() => { storageService.deleteTask(task.id); loadData(); }}
+                          className="px-2 py-1 bg-slate-800 text-rose-400 text-xs rounded-lg"
+                          title="Delete"
+                        >
+                          🗑
+                        </button>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            )}
+          </main>
+
+          {/* Floating Action Button */}
+          {currentScreen === 'DASHBOARD' && (
+            <div className="fixed bottom-6 right-6 z-30">
+              <button
+                onClick={() => { setEditingTask(null); setIsAddEditOpen(true); }}
+                className="flex items-center gap-2 px-5 py-3.5 rounded-2xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 text-white font-bold text-sm shadow-2xl shadow-purple-600/40 active:scale-95"
+              >
+                <span>+ Add Task</span>
+              </button>
+            </div>
+          )}
+
+          {/* Toast Notification */}
+          {toast && (
+            <div className={`fixed bottom-6 left-6 z-50 p-4 rounded-xl border shadow-xl backdrop-blur-md text-xs font-semibold ${toast.type === 'success' ? 'bg-slate-900/90 border-emerald-500/50 text-emerald-300' : toast.type === 'error' ? 'bg-slate-900/90 border-rose-500/50 text-rose-300' : 'bg-slate-900/90 border-purple-500/50 text-purple-300'}`}>
+              {toast.msg}
+            </div>
+          )}
+
+          {/* Add/Edit Modal */}
+          {isAddEditOpen && (
+            <AddEditModal
+              initial={editingTask}
+              categories={categories}
+              onClose={() => { setIsAddEditOpen(false); setEditingTask(null); }}
+              onSave={(t) => {
+                if (editingTask) storageService.updateTask({ ...t, id: editingTask.id, createdAt: editingTask.createdAt, sortOrder: editingTask.sortOrder });
+                else storageService.addTask(t);
+                loadData();
+                setIsAddEditOpen(false);
+                setEditingTask(null);
+                showToast(editingTask ? 'Task updated' : 'Task added', 'success');
+              }}
+            />
+          )}
+
+          {/* AI Goal Breakdown Modal */}
+          {isAiModalOpen && (
+            <AiGoalModal
+              categories={categories}
+              config={byokConfig}
+              tier={currentTier}
+              onClose={() => setIsAiModalOpen(false)}
+              onAddTasks={(newTasks) => {
+                newTasks.forEach(t => storageService.addTask(t));
+                loadData();
+                setIsAiModalOpen(false);
+                showToast(`Added ${newTasks.length} AI structured tasks!`, 'success');
+              }}
+              onOpenUpgrade={() => { setIsAiModalOpen(false); setIsUpgradeOpen(true); }}
+              onIncDemo={() => { storageService.incrementDemoUses(); loadData(); }}
+            />
+          )}
+
+          {/* Category Modal */}
+          {isCategoryModalOpen && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm">
+              <div className="w-full max-w-md rounded-2xl bg-slate-900 border border-slate-800 p-6 shadow-2xl">
+                <h3 className="text-base font-bold text-slate-100 mb-4">{editingCat ? 'Edit Category' : 'New Category'}</h3>
+                <input
+                  type="text"
+                  value={catNameInput}
+                  onChange={(e) => setCatNameInput(e.target.value)}
+                  placeholder="Category Name..."
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-slate-800 border border-slate-700 text-sm text-slate-100 mb-4 focus:outline-none"
+                  autoFocus
+                />
+                <div className="flex gap-2 mb-6">
+                  {PRESET_COLORS.map(c => (
+                    <button
+                      key={c}
+                      type="button"
+                      onClick={() => setCatColorInput(c)}
+                      className={`w-7 h-7 rounded-full ${catColorInput === c ? 'ring-2 ring-white scale-110' : ''}`}
+                      style={{ backgroundColor: c }}
+                    />
+                  ))}
+                </div>
+                <div className="flex justify-between">
+                  {editingCat ? (
+                    <button
+                      type="button"
+                      onClick={() => { storageService.deleteCategory(editingCat.id); loadData(); setIsCategoryModalOpen(false); showToast('Category deleted'); }}
+                      className="text-xs text-rose-400 font-semibold"
+                    >
+                      Delete
+                    </button>
+                  ) : <div />}
+                  <div className="flex gap-2">
+                    <button type="button" onClick={() => setIsCategoryModalOpen(false)} className="px-4 py-2 rounded-xl text-xs text-slate-400">Cancel</button>
+                    <button
+                      type="button"
+                      disabled={!catNameInput.trim()}
+                      onClick={() => {
+                        if (editingCat) storageService.updateCategory({ ...editingCat, name: catNameInput.trim(), color: catColorInput });
+                        else storageService.addCategory(catNameInput.trim(), catColorInput);
+                        loadData();
+                        setIsCategoryModalOpen(false);
+                      }}
+                      className="px-5 py-2 rounded-xl bg-purple-600 text-xs font-bold text-white shadow-md"
+                    >
+                      Save
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Settings Modal */}
+          {isSettingsOpen && (
+            <SettingsDialog
+              config={byokConfig}
+              tier={currentTier}
+              onClose={() => setIsSettingsOpen(false)}
+              onSave={(cfg) => { storageService.saveBYOKConfig(cfg); loadData(); }}
+              onReset={() => { storageService.reset(); loadData(); setIsSettingsOpen(false); showToast('Reset to defaults'); }}
+              showToast={showToast}
+            />
+          )}
+
+          {/* Upgrade / Unlock Modal */}
+          {isUpgradeOpen && (
+            <UpgradeDialog
+              tier={currentTier}
+              onClose={() => setIsUpgradeOpen(false)}
+              onOpenSettings={() => { setIsUpgradeOpen(false); setIsSettingsOpen(true); }}
+            />
+          )}
+        </div>
+      );
+    }
+
+    // --- SUB-COMPONENTS ---
+    function AddEditModal({ initial, categories, onClose, onSave }) {
+      const [title, setTitle] = useState(initial?.title || '');
+      const [description, setDescription] = useState(initial?.description || '');
+      const [priority, setPriority] = useState(initial?.priority || 'MEDIUM');
+      const [categoryId, setCategoryId] = useState(initial?.categoryId || null);
+      const [isRecurring, setIsRecurring] = useState(initial?.isRecurring || false);
+      const [recurrenceInterval, setRecurrenceInterval] = useState(initial?.recurrenceInterval || 'DAILY');
+      const [subtasks, setSubtasks] = useState(initial?.subtasks || []);
+      const [newSubtask, setNewSubtask] = useState('');
+      const defaultDueStr = initial?.dueDate ? new Date(initial.dueDate).toISOString().split('T')[0] : new Date().toISOString().split('T')[0];
+      const [dueDate, setDueDate] = useState(defaultDueStr);
+
+      const setQuickDate = (offsetDays) => {
+        const d = new Date();
+        d.setDate(d.getDate() + offsetDays);
+        setDueDate(d.toISOString().split('T')[0]);
+      };
+
+      return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm">
+          <div className="w-full max-w-lg max-h-[90vh] flex flex-col rounded-3xl bg-slate-900 border border-slate-800 shadow-2xl overflow-hidden">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800">
+              <h2 className="text-base font-bold text-slate-100">{initial ? 'Edit Task' : 'Create Task'}</h2>
+              <button onClick={onClose} className="text-slate-400 hover:text-slate-200">✕</button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-6 flex flex-col gap-4">
+              <div>
+                <label className="block text-xs font-bold uppercase text-slate-300 mb-1">Task Title *</label>
+                <input
+                  type="text"
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  placeholder="Task title..."
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-slate-800 border border-slate-700 text-sm text-slate-100 focus:outline-none focus:border-purple-500"
+                  autoFocus
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold uppercase text-slate-300 mb-1">Notes / Description</label>
+                <textarea
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  placeholder="Details..."
+                  rows={2}
+                  className="w-full px-3.5 py-2 rounded-xl bg-slate-800 border border-slate-700 text-xs text-slate-200 focus:outline-none resize-none"
+                />
+              </div>
+
+              {/* Due Date */}
+              <div>
+                <label className="block text-xs font-bold uppercase text-slate-300 mb-1.5">Scheduled Due Date</label>
+                <div className="flex items-center gap-2 mb-2">
+                  <input
+                    type="date"
+                    value={dueDate}
+                    onChange={(e) => setDueDate(e.target.value)}
+                    className="flex-1 px-3.5 py-2 rounded-xl bg-slate-800 border border-slate-700 text-xs text-slate-100 focus:outline-none focus:border-purple-500"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setQuickDate(0)}
+                    className="px-2.5 py-2 rounded-xl bg-slate-800 border border-slate-700 text-xs text-purple-300 hover:bg-slate-700"
+                  >
+                    Today
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setQuickDate(1)}
+                    className="px-2.5 py-2 rounded-xl bg-slate-800 border border-slate-700 text-xs text-purple-300 hover:bg-slate-700"
+                  >
+                    Tomorrow
+                  </button>
+                </div>
+              </div>
+
+              {/* Recurrence */}
+              <div className="p-3 rounded-2xl bg-slate-850 border border-slate-800">
+                <label className="flex items-center gap-2 text-xs font-bold uppercase text-slate-300 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={isRecurring}
+                    onChange={(e) => setIsRecurring(e.target.checked)}
+                    className="rounded bg-slate-800 border-slate-700 text-purple-600 w-4 h-4"
+                  />
+                  <span>🔁 Repeat Habit / Recurring Task</span>
+                </label>
+                {isRecurring && (
+                  <div className="flex gap-2 mt-3 pl-6">
+                    {['DAILY', 'WEEKLY', 'MONTHLY', 'YEARLY'].map((interval) => (
+                      <button
+                        key={interval}
+                        type="button"
+                        onClick={() => setRecurrenceInterval(interval)}
+                        className={`px-3 py-1.5 rounded-xl border text-xs font-semibold ${recurrenceInterval === interval ? 'bg-purple-600 border-purple-400 text-white' : 'bg-slate-800 border-slate-700 text-slate-400'}`}
+                      >
+                        {interval.charAt(0) + interval.slice(1).toLowerCase()}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold uppercase text-slate-300 mb-1.5">Priority</label>
+                <div className="grid grid-cols-4 gap-2">
+                  {['LOW', 'MEDIUM', 'HIGH', 'URGENT'].map((p) => (
+                    <button
+                      key={p}
+                      type="button"
+                      onClick={() => setPriority(p)}
+                      className={`py-1.5 rounded-xl border text-xs font-semibold ${priority === p ? `${PRIORITY_CONFIG[p].bgClass} ring-2 ring-purple-500` : 'bg-slate-800 border-slate-700 text-slate-400'}`}
+                    >
+                      {PRIORITY_CONFIG[p].label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold uppercase text-slate-300 mb-1.5">Category</label>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setCategoryId(null)}
+                    className={`px-3 py-1 rounded-xl border text-xs ${categoryId === null ? 'bg-purple-600 text-white border-purple-400' : 'bg-slate-800 border-slate-700 text-slate-400'}`}
+                  >
+                    None
+                  </button>
+                  {categories.map((c) => (
+                    <button
+                      key={c.id}
+                      type="button"
+                      onClick={() => setCategoryId(c.id)}
+                      className={`px-3 py-1 rounded-xl border text-xs ${categoryId === c.id ? 'bg-purple-950 text-purple-200 border-purple-400' : 'bg-slate-800 border-slate-700 text-slate-300'}`}
+                    >
+                      {c.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Checklist */}
+              <div className="p-3 rounded-2xl bg-slate-850 border border-slate-800">
+                <label className="block text-xs font-bold uppercase text-slate-300 mb-2">Checklist Steps ({subtasks.length})</label>
+                {subtasks.map((st, i) => (
+                  <div key={st.id || i} className="flex justify-between items-center text-xs text-slate-200 py-1">
+                    <span>• {st.title}</span>
+                    <button type="button" onClick={() => setSubtasks(subtasks.filter((_, idx) => idx !== i))} className="text-slate-500 hover:text-rose-400">✕</button>
+                  </div>
+                ))}
+                <div className="flex gap-2 mt-2">
+                  <input
+                    type="text"
+                    value={newSubtask}
+                    onChange={(e) => setNewSubtask(e.target.value)}
+                    placeholder="Add step..."
+                    className="flex-1 px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-700 text-xs text-slate-200 focus:outline-none"
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && newSubtask.trim()) {
+                        e.preventDefault();
+                        setSubtasks([...subtasks, { id: 'st_' + Date.now(), title: newSubtask.trim(), isCompleted: false }]);
+                        setNewSubtask('');
+                      }
+                    }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (newSubtask.trim()) {
+                        setSubtasks([...subtasks, { id: 'st_' + Date.now(), title: newSubtask.trim(), isCompleted: false }]);
+                        setNewSubtask('');
+                      }
+                    }}
+                    className="px-3 py-1.5 bg-slate-800 text-purple-300 rounded-xl text-xs"
+                  >
+                    +
+                  </button>
+                </div>
+              </div>
+            </div>
+            <div className="flex justify-end gap-3 px-6 py-4 border-t border-slate-800 bg-slate-900">
+              <button type="button" onClick={onClose} className="px-4 py-2 text-xs text-slate-400">Cancel</button>
+              <button
+                type="button"
+                disabled={!title.trim()}
+                onClick={() => onSave({
+                  title: title.trim(),
+                  description: description.trim(),
+                  priority,
+                  categoryId,
+                  isRecurring,
+                  recurrenceInterval: isRecurring ? recurrenceInterval : 'NONE',
+                  dueDate: dueDate ? new Date(dueDate + 'T12:00:00').getTime() : null,
+                  isCompleted: initial?.isCompleted || false,
+                  hasAlarm: false,
+                  subtasks
+                })}
+                className="px-6 py-2 bg-purple-600 text-white rounded-xl text-xs font-bold shadow-lg disabled:opacity-50"
+              >
+                {initial ? 'Update Task' : 'Save Task'}
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    function AiGoalModal({ categories, config, tier, onClose, onAddTasks, onOpenUpgrade, onIncDemo }) {
+      const [prompt, setPrompt] = useState('');
+      const [loading, setLoading] = useState(false);
+      const [results, setResults] = useState(null);
+
+      const handleGen = async () => {
+        if (!prompt.trim() || loading) return;
+        if (tier === 'FREE_DEMO' && config.demoAiUsesCount >= 3) {
+          onOpenUpgrade();
+          return;
+        }
+        setLoading(true);
+        const res = await geminiService.generateGoalBreakdown(prompt, config);
+        setResults(res);
+        if (tier === 'FREE_DEMO') onIncDemo();
+        setLoading(false);
+      };
+
+      return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
+          <div className="w-full max-w-xl max-h-[90vh] flex flex-col rounded-3xl bg-slate-900 border border-purple-500/40 shadow-2xl overflow-hidden">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800 bg-gradient-to-r from-purple-950/60 to-slate-900">
+              <h2 className="text-base font-bold text-slate-100 flex items-center gap-2">✨ Tasker AI Goal Assistant</h2>
+              <button onClick={onClose} className="text-slate-400">✕</button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-6 flex flex-col gap-4">
+              {!results ? (
+                <>
+                  <div className="flex flex-wrap gap-1.5">
+                    {['Launch Android App MVP', 'Plan health & fitness routine', 'Prepare monthly financial budget'].map(p => (
+                      <button key={p} onClick={() => setPrompt(p)} className="px-2.5 py-1 rounded-xl bg-slate-800 border border-slate-700 text-xs text-slate-300">
+                        {p}
+                      </button>
+                    ))}
+                  </div>
+                  <textarea
+                    value={prompt}
+                    onChange={(e) => setPrompt(e.target.value)}
+                    placeholder="Describe your goal in detail..."
+                    rows={3}
+                    className="w-full px-4 py-3 rounded-2xl bg-slate-800 border border-slate-700 text-sm text-slate-100 focus:outline-none focus:border-purple-500"
+                    autoFocus
+                  />
+                  {loading && (
+                    <div className="p-6 text-center text-purple-300 text-sm animate-pulse">
+                      Architecting milestones with Gemini AI...
+                    </div>
+                  )}
+                </>
+              ) : (
+                <div className="flex flex-col gap-3">
+                  <span className="text-xs font-bold text-emerald-400">✓ Generated {results.length} Structured Tasks</span>
+                  {results.map((r, i) => (
+                    <div key={i} className="p-3.5 rounded-2xl bg-slate-800 border border-slate-700">
+                      <h4 className="text-sm font-bold text-slate-100">{r.title}</h4>
+                      <p className="text-xs text-slate-400 mt-0.5">{r.description}</p>
+                      {r.subtaskTitles?.length > 0 && (
+                        <div className="mt-2 pl-2 border-l border-slate-700 flex flex-col gap-1">
+                          {r.subtaskTitles.map((st, idx) => (
+                            <span key={idx} className="text-[11px] text-slate-300">• {st}</span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="flex justify-between px-6 py-4 border-t border-slate-800 bg-slate-900">
+              {results ? (
+                <>
+                  <button onClick={() => setResults(null)} className="text-xs text-slate-400">Back</button>
+                  <button
+                    onClick={() => {
+                      onAddTasks(results.map(r => ({
+                        ...r,
+                        subtasks: r.subtaskTitles.map(t => ({ id: 'st_' + Math.random(), title: t, isCompleted: false }))
+                      })));
+                    }}
+                    className="px-6 py-2 bg-gradient-to-r from-purple-600 to-emerald-600 text-white rounded-xl text-xs font-bold"
+                  >
+                    Add All to Dashboard
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button onClick={onClose} className="text-xs text-slate-400">Cancel</button>
+                  <button onClick={handleGen} disabled={!prompt.trim() || loading} className="px-6 py-2 bg-purple-600 text-white rounded-xl text-xs font-bold disabled:opacity-50">
+                    Generate Tasks
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    const DEFAULT_MODEL_LIST = [
+      { id: 'gemini-3.6-flash', name: 'Gemini 3.6 Flash (Recommended - Fastest & High Accuracy)' },
+      { id: 'gemini-3.6-pro', name: 'Gemini 3.6 Pro (Advanced Reasoning & Goal Breakdown)' },
+      { id: 'gemini-3.6-flash-lite', name: 'Gemini 3.6 Flash Lite (Ultra-Low Latency)' },
+      { id: 'gemini-3.6-flash-8b', name: 'Gemini 3.6 Flash 8B (Lightweight Efficiency)' }
+    ];
+
+    function SettingsDialog({ config, tier, onClose, onSave, onReset, showToast }) {
+      const [key, setKey] = useState(config.apiKey);
+      const [model, setModel] = useState((config.model && config.model.includes('3.6')) ? config.model : 'gemini-3.6-flash');
+      const [modelOptions, setModelOptions] = useState(DEFAULT_MODEL_LIST);
+      const [testing, setTesting] = useState(false);
+
+      const handleSave = async () => {
+        if (!key.trim()) {
+          onSave({ ...config, apiKey: '', isValidated: false, model });
+          showToast('API Key removed.');
+          return;
+        }
+        setTesting(true);
+        const res = await geminiService.validateKey(key.trim(), model);
+        setTesting(false);
+        if (res.valid) {
+          if (res.availableModels && res.availableModels.length > 0) {
+            setModelOptions(res.availableModels);
+          }
+          const finalModel = res.resolvedModel || model;
+          setModel(finalModel);
+          onSave({ ...config, apiKey: key.trim(), isValidated: true, model: finalModel });
+          showToast(`Gemini Key verified! Model: ${finalModel}. Unlimited BYOK unlocked.`, 'success');
+        } else {
+          showToast(res.error || 'Validation error', 'error');
+        }
+      };
+
+      return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
+          <div className="w-full max-w-lg rounded-3xl bg-slate-900 border border-slate-800 p-6 shadow-2xl">
+            <div className="flex justify-between items-center pb-3 border-b border-slate-800 mb-4">
+              <h2 className="text-base font-bold text-slate-100">⚙️ Settings & BYOK API Key</h2>
+              <button onClick={onClose} className="text-slate-400">✕</button>
+            </div>
+            <div className="flex flex-col gap-4">
+              <div>
+                <div className="flex justify-between text-xs mb-1">
+                  <label className="font-bold text-slate-300 uppercase">Personal Gemini API Key</label>
+                  <a href="https://aistudio.google.com/app/apikey" target="_blank" className="text-purple-400 underline">Get Free Key ↗</a>
+                </div>
+                <input
+                  type="password"
+                  value={key}
+                  onChange={(e) => setKey(e.target.value)}
+                  placeholder="AIzaSy..."
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-slate-800 border border-slate-700 text-xs font-mono text-slate-100 focus:outline-none focus:border-purple-500"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold uppercase text-slate-300 mb-1">Gemini Model</label>
+                <select
+                  value={model}
+                  onChange={(e) => setModel(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl bg-slate-800 border border-slate-700 text-xs text-slate-200"
+                >
+                  {modelOptions.map((m) => (
+                    <option key={m.id} value={m.id} className="bg-slate-900 text-slate-200">
+                      {m.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <button
+                onClick={handleSave}
+                disabled={testing}
+                className="w-full py-2.5 bg-purple-600 hover:bg-purple-500 text-white rounded-xl text-xs font-bold"
+              >
+                {testing ? 'Discovering models & testing connection...' : 'Test & Save Key'}
+              </button>
+              <div className="pt-3 border-t border-slate-800 flex justify-between items-center">
+                <button onClick={onReset} className="text-xs text-rose-400 hover:underline">Reset Sample Data</button>
+                <button onClick={onClose} className="px-4 py-1.5 bg-slate-800 text-slate-300 rounded-xl text-xs font-semibold">Done</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    function UpgradeDialog({ tier, onClose, onOpenSettings }) {
+      return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
+          <div className="w-full max-w-lg rounded-3xl bg-slate-900 border border-slate-800 p-6 shadow-2xl">
+            <div className="flex justify-between items-center pb-3 border-b border-slate-800 mb-4">
+              <h2 className="text-base font-bold text-slate-100">🚀 Unlock Tasker AI — Free Forever</h2>
+              <button onClick={onClose} className="text-slate-400 hover:text-slate-200">✕</button>
+            </div>
+            
+            <div className="p-5 rounded-2xl border-2 border-purple-500/80 bg-gradient-to-b from-purple-950/40 via-slate-850 to-slate-900 shadow-xl mb-4">
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="text-base font-bold text-slate-100 flex items-center gap-1.5">
+                  <span>🔑</span> BYOK Free Activation
+                </h3>
+                <span className="px-2.5 py-0.5 rounded-full bg-emerald-950/80 border border-emerald-500/50 text-emerald-300 text-xs font-extrabold">
+                  100% Free
+                </span>
+              </div>
+              <p className="text-xs text-slate-300 leading-relaxed mb-4">
+                Paste your personal Google Gemini API key to permanently unlock all AI features with zero subscriptions or hidden fees.
+              </p>
+              <ul className="flex flex-col gap-2 text-xs text-slate-200 mb-5">
+                <li className="flex items-center gap-2 text-emerald-300">
+                  <span>✓</span> <strong>Unlimited</strong> AI Goal Breakdowns & Milestones
+                </li>
+                <li className="flex items-center gap-2 text-emerald-300">
+                  <span>✓</span> <strong>Unlimited</strong> Natural Language Smart Add
+                </li>
+                <li className="flex items-center gap-2 text-emerald-300">
+                  <span>✓</span> <strong>Unlimited</strong> Custom Categories
+                </li>
+                <li className="flex items-center gap-2 text-emerald-300">
+                  <span>✓</span> <strong>Voice Dictation</strong> with Speech-to-Task
+                </li>
+                <li className="flex items-center gap-2 text-emerald-300">
+                  <span>✓</span> 100% Client-Side Privacy (Keys stored in your browser)
+                </li>
+              </ul>
+              <div className="flex flex-col gap-2 pt-2 border-t border-purple-800/40">
+                <button
+                  onClick={() => { onClose(); onOpenSettings(); }}
+                  className="w-full py-2.5 bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold rounded-xl shadow-lg shadow-purple-600/30 transition-all active:scale-95"
+                >
+                  Enter Free Gemini Key in Settings →
+                </button>
+                <a
+                  href="https://aistudio.google.com/app/apikey"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-center text-xs text-purple-400 hover:text-purple-300 font-medium py-1"
+                >
+                  Get Free API Key from Google AI Studio ↗
+                </a>
+              </div>
+            </div>
+
+            <div className="p-3 rounded-xl bg-slate-950/60 border border-slate-800 text-[11px] text-slate-400 mb-4">
+              🛡️ On the Free Demo tier, you have 3 trial AI uses and 3 categories. Basic task management is always 100% free!
+            </div>
+
+            <div className="flex justify-end">
+              <button onClick={onClose} className="px-5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-300">
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    class ErrorBoundary extends React.Component {
+      constructor(props) {
+        super(props);
+        this.state = { hasError: false, error: null };
+      }
+      static getDerivedStateFromError(error) {
+        return { hasError: true, error };
+      }
+      componentDidCatch(error, errorInfo) {
+        console.error("App Error:", error, errorInfo);
+      }
+      handleReset() {
+        localStorage.clear();
+        window.location.reload();
+      }
+      render() {
+        if (this.state.hasError) {
+          return (
+            <div className="min-h-screen bg-slate-950 text-white flex flex-col items-center justify-center p-6 text-center">
+              <div className="w-16 h-16 rounded-2xl bg-purple-600/20 border border-purple-500/40 flex items-center justify-center text-3xl mb-4 text-purple-400">
+                ⚠️
+              </div>
+              <h1 className="text-xl font-bold mb-2">Something went wrong</h1>
+              <p className="text-sm text-slate-400 mb-6 max-w-md">
+                An unexpected state occurred. You can restore default state or refresh the page.
+              </p>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => window.location.reload()}
+                  className="px-4 py-2 rounded-xl bg-slate-800 border border-slate-700 text-sm font-semibold text-slate-200"
+                >
+                  Reload Page
+                </button>
+                <button
+                  onClick={this.handleReset}
+                  className="px-4 py-2 rounded-xl bg-purple-600 text-sm font-bold text-white shadow-lg"
+                >
+                  Reset Defaults & Recover
+                </button>
+              </div>
+            </div>
+          );
+        }
+        return this.props.children;
+      }
+    }
+
+    // Render React App
+    ReactDOM.createRoot(document.getElementById('root')).render(
+      <ErrorBoundary>
+        <App />
+      </ErrorBoundary>
+    );
+  </script>
+</body>
+</html>
