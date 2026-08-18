@@ -1,5 +1,13 @@
-import { GoogleGenAI } from '@google/genai';
-import { BYOKConfig, Priority, RecurrenceInterval, TaskItem } from '../types';
+import { GoogleGenerativeAI } from '@google/generative-ai';
+import { BYOKConfig, Priority, RecurrenceInterval } from '../types';
+
+export async function generateSubtasks(apiKey: string, goal: string): Promise<string> {
+  const genAI = new GoogleGenerativeAI(apiKey);
+  const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+  const prompt = `Break down this goal into actionable subtasks formatted as JSON: "${goal}"`;
+  const result = await model.generateContent(prompt);
+  return result.response.text();
+}
 
 export interface SmartTaskResult {
   title: string;
