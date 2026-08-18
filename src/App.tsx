@@ -517,7 +517,7 @@ export const App: React.FC = () => {
           }}
           onSave={handleSaveTask}
           onOpenUpgradeModal={() => setIsUpgradeModalOpen(true)}
-          defaultDate={selectedDate}
+          defaultDate={selectedDate ?? Date.now()}
         />
       )}
 

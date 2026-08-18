@@ -20,7 +20,7 @@ interface AddEditTaskModalProps {
   onClose: () => void;
   onSave: (taskData: Omit<TaskItem, 'id' | 'createdAt' | 'sortOrder'>) => void;
   onOpenUpgradeModal: () => void;
-  defaultDate: number;
+  defaultDate?: number | null;
 }
 
 export const AddEditTaskModal: React.FC<AddEditTaskModalProps> = ({
@@ -70,7 +70,7 @@ export const AddEditTaskModal: React.FC<AddEditTaskModalProps> = ({
       }
     } else {
       // Default to selected focus date
-      const d = new Date(defaultDate);
+      const d = new Date(defaultDate ?? Date.now());
       setHasDueDate(true);
       setDueDateString(d.toISOString().split('T')[0]);
       setDueTimeString('12:00');
