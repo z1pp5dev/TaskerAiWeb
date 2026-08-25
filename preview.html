@@ -905,7 +905,43 @@ Break down user goal into 3-5 sequential actionable milestones. Return ONLY a JS
         const driveUser = googleDriveService.getUser();
         if (driveUser) {
           setUser(driveUser);
+          googleDriveService.loadFromDrive().then(driveData => {
+            if (driveData) {
+              if (driveData.byokConfig?.apiKey && driveData.byokConfig.isValidated) {
+                storageService.saveBYOKConfig(driveData.byokConfig);
+              }
+              if (Array.isArray(driveData.tasks) && driveData.tasks.length > 0) {
+                storageService.saveTasks(driveData.tasks);
+              }
+              if (Array.isArray(driveData.categories) && driveData.categories.length > 0) {
+                storageService.saveCategories(driveData.categories);
+              }
+              loadData();
+            }
+          });
         }
+
+        const handleFocusSync = () => {
+          if (document.visibilityState === 'visible' && googleDriveService.getUser()) {
+            googleDriveService.loadFromDrive().then(driveData => {
+              if (driveData) {
+                if (driveData.byokConfig?.apiKey && driveData.byokConfig.isValidated) {
+                  storageService.saveBYOKConfig(driveData.byokConfig);
+                }
+                if (Array.isArray(driveData.tasks) && driveData.tasks.length > 0) {
+                  storageService.saveTasks(driveData.tasks);
+                }
+                if (Array.isArray(driveData.categories) && driveData.categories.length > 0) {
+                  storageService.saveCategories(driveData.categories);
+                }
+                loadData();
+              }
+            });
+          }
+        };
+
+        window.addEventListener('visibilitychange', handleFocusSync);
+        window.addEventListener('focus', handleFocusSync);
 
         // Web Speech API
         const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -920,6 +956,11 @@ Break down user goal into 3-5 sequential actionable milestones. Return ONLY a JS
           rec.onend = () => setIsRecording(false);
           recognitionRef.current = rec;
         }
+
+        return () => {
+          window.removeEventListener('visibilitychange', handleFocusSync);
+          window.removeEventListener('focus', handleFocusSync);
+        };
       }, []);
 
       const currentTier = useMemo(() => {

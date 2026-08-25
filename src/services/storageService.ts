@@ -219,7 +219,7 @@ class StorageService {
     return this.isSyncing;
   }
 
-  private scheduleBackgroundSync(): void {
+  scheduleBackgroundSync(): void {
     if (!googleDriveService.getUser()) return;
 
     if (this.autoSyncTimer) {
@@ -228,11 +228,11 @@ class StorageService {
 
     this.autoSyncTimer = setTimeout(async () => {
       try {
-        await googleDriveService.saveToDrive(this.getTasks(), this.getCategories());
+        await googleDriveService.saveToDrive(this.getTasks(), this.getCategories(), undefined, this.getBYOKConfig());
       } catch (e) {
         console.warn('Background Google Drive sync failed:', e);
       }
-    }, 1500);
+    }, 1000);
   }
 
   // --- CATEGORIES API ---
@@ -465,8 +465,8 @@ class StorageService {
     this.isSyncing = true;
     try {
       // 1. Fetch local data
-      const localCategories = this.getCategories();
-      const localTasks = this.getTasks();
+      let localCategories = this.getCategories();
+      let localTasks = this.getTasks();
       const localBYOK = this.getBYOKConfig();
 
       // 2. Fetch Google Drive data
@@ -474,6 +474,17 @@ class StorageService {
       const driveCategories = driveData?.categories || [];
       const driveTasks = driveData?.tasks || [];
       const driveBYOK = driveData?.byokConfig;
+
+      // Smart Sample Clean: If drive has real tasks and local only has the initial 3 sample mock tasks, discard mock tasks
+      const isLocalOnlySampleTasks = localTasks.length <= 3 && localTasks.every((t) => t.id.startsWith('task_demo_') || t.id.startsWith('task_1') || t.id.startsWith('task_2') || t.id.startsWith('task_3'));
+      if (isLocalOnlySampleTasks && driveTasks.length > 0) {
+        localTasks = [];
+      }
+
+      const isLocalOnlySampleCategories = localCategories.length <= 3 && localCategories.every((c) => ['cat_work', 'cat_personal', 'cat_health'].includes(c.id));
+      if (isLocalOnlySampleCategories && driveCategories.length > 0) {
+        localCategories = [];
+      }
 
       // 3. Merge BYOK Config (Sync API Key across devices)
       let mergedBYOK = localBYOK;
@@ -566,6 +577,7 @@ class StorageService {
   saveBYOKConfig(config: BYOKConfig): void {
     try {
       localStorage.setItem(STORAGE_KEYS.BYOK_CONFIG, JSON.stringify(config));
+      this.scheduleBackgroundSync();
     } catch (e) {
       console.error('Failed to save BYOK config:', e);
     }

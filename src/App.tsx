@@ -125,8 +125,36 @@ export const App: React.FC = () => {
       }
     });
 
+    // Auto-pull fresh cloud changes when user returns to tab / focuses window
+    const handleFocusSync = () => {
+      if (document.visibilityState === 'visible' && googleDriveService.getUser()) {
+        storageService.syncAndMerge().then((res) => {
+          if (res.success) {
+            loadData();
+          }
+        });
+      }
+    };
+
+    window.addEventListener('visibilitychange', handleFocusSync);
+    window.addEventListener('focus', handleFocusSync);
+
+    // Periodic cloud poll every 25s while active and signed in
+    const interval = setInterval(() => {
+      if (document.visibilityState === 'visible' && googleDriveService.getUser()) {
+        storageService.syncAndMerge().then((res) => {
+          if (res.success) {
+            loadData();
+          }
+        });
+      }
+    }, 25000);
+
     return () => {
       unsubscribe();
+      window.removeEventListener('visibilitychange', handleFocusSync);
+      window.removeEventListener('focus', handleFocusSync);
+      clearInterval(interval);
     };
   }, [loadData, showToast]);
 
