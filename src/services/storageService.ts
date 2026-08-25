@@ -1,10 +1,12 @@
 import { Category, TaskItem, BYOKConfig, SubTask, RecurrenceInterval, FREE_TIER_LIMITS } from '../types';
+import { googleDriveService } from './googleDriveService';
 
 const STORAGE_KEYS = {
   TASKS: 'tasker_ai_tasks_v1',
   CATEGORIES: 'tasker_ai_categories_v1',
   BYOK_CONFIG: 'tasker_ai_byok_config_v1',
-  THEME: 'tasker_ai_theme_v1'
+  THEME: 'tasker_ai_theme_v1',
+  NOTES: 'tasker_ai_notes_v1'
 };
 
 const DEFAULT_CATEGORIES: Category[] = [
@@ -70,8 +72,8 @@ const DEFAULT_TASKS: TaskItem[] = [
 
 const DEFAULT_BYOK_CONFIG: BYOKConfig = {
   apiKey: '',
-  model: 'gemini-3.6-flash',
   isValidated: false,
+  model: 'gemini-3.6-flash',
   demoAiUsesCount: 0
 };
 
@@ -82,8 +84,158 @@ const ALLOWED_TASK_MODELS = [
   'gemini-3.6-flash-8b'
 ];
 
-export const storageService = {
-  // Categories
+// --- STORAGE ADAPTER INTERFACE ---
+export interface StorageAdapter {
+  loadCategories(): Promise<Category[]>;
+  saveCategory(category: Category): Promise<void>;
+  deleteCategory(id: string): Promise<void>;
+  loadTasks(): Promise<TaskItem[]>;
+  saveTask(task: TaskItem): Promise<void>;
+  deleteTask(id: string): Promise<void>;
+  loadNotes(): Promise<string>;
+  saveNotes(content: string): Promise<void>;
+}
+
+// --- LOCAL STORAGE ADAPTER ---
+export class LocalStorageAdapter implements StorageAdapter {
+  async loadCategories(): Promise<Category[]> {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEYS.CATEGORIES);
+      if (!raw) {
+        localStorage.setItem(STORAGE_KEYS.CATEGORIES, JSON.stringify(DEFAULT_CATEGORIES));
+        return DEFAULT_CATEGORIES;
+      }
+      return JSON.parse(raw);
+    } catch (e) {
+      return DEFAULT_CATEGORIES;
+    }
+  }
+
+  async saveCategory(category: Category): Promise<void> {
+    const cats = await this.loadCategories();
+    const idx = cats.findIndex((c) => c.id === category.id);
+    if (idx >= 0) {
+      cats[idx] = category;
+    } else {
+      cats.push(category);
+    }
+    localStorage.setItem(STORAGE_KEYS.CATEGORIES, JSON.stringify(cats));
+  }
+
+  async deleteCategory(id: string): Promise<void> {
+    const cats = (await this.loadCategories()).filter((c) => c.id !== id);
+    localStorage.setItem(STORAGE_KEYS.CATEGORIES, JSON.stringify(cats));
+  }
+
+  async loadTasks(): Promise<TaskItem[]> {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEYS.TASKS);
+      if (!raw) {
+        localStorage.setItem(STORAGE_KEYS.TASKS, JSON.stringify(DEFAULT_TASKS));
+        return DEFAULT_TASKS;
+      }
+      return JSON.parse(raw);
+    } catch (e) {
+      return DEFAULT_TASKS;
+    }
+  }
+
+  async saveTask(task: TaskItem): Promise<void> {
+    const tasks = await this.loadTasks();
+    const idx = tasks.findIndex((t) => t.id === task.id);
+    if (idx >= 0) {
+      tasks[idx] = task;
+    } else {
+      tasks.unshift(task);
+    }
+    localStorage.setItem(STORAGE_KEYS.TASKS, JSON.stringify(tasks));
+  }
+
+  async deleteTask(id: string): Promise<void> {
+    const tasks = (await this.loadTasks()).filter((t) => t.id !== id);
+    localStorage.setItem(STORAGE_KEYS.TASKS, JSON.stringify(tasks));
+  }
+
+  async loadNotes(): Promise<string> {
+    return localStorage.getItem(STORAGE_KEYS.NOTES) || '';
+  }
+
+  async saveNotes(content: string): Promise<void> {
+    localStorage.setItem(STORAGE_KEYS.NOTES, content);
+  }
+}
+
+// --- GOOGLE DRIVE STORAGE ADAPTER ---
+export class GoogleDriveStorageAdapter implements StorageAdapter {
+  async loadCategories(): Promise<Category[]> {
+    const data = await googleDriveService.loadFromDrive();
+    return data?.categories || [];
+  }
+
+  async saveCategory(category: Category): Promise<void> {
+    const tasks = storageService.getTasks();
+    const categories = storageService.getCategories();
+    await googleDriveService.saveToDrive(tasks, categories);
+  }
+
+  async deleteCategory(id: string): Promise<void> {
+    const tasks = storageService.getTasks();
+    const categories = storageService.getCategories();
+    await googleDriveService.saveToDrive(tasks, categories);
+  }
+
+  async loadTasks(): Promise<TaskItem[]> {
+    const data = await googleDriveService.loadFromDrive();
+    return data?.tasks || [];
+  }
+
+  async saveTask(task: TaskItem): Promise<void> {
+    const tasks = storageService.getTasks();
+    const categories = storageService.getCategories();
+    await googleDriveService.saveToDrive(tasks, categories);
+  }
+
+  async deleteTask(id: string): Promise<void> {
+    const tasks = storageService.getTasks();
+    const categories = storageService.getCategories();
+    await googleDriveService.saveToDrive(tasks, categories);
+  }
+
+  async loadNotes(): Promise<string> {
+    return '';
+  }
+
+  async saveNotes(content: string): Promise<void> {}
+}
+
+// --- UNIFIED STORAGE SERVICE ---
+class StorageService {
+  private localAdapter = new LocalStorageAdapter();
+  private driveAdapter = new GoogleDriveStorageAdapter();
+  private isSyncing = false;
+  private autoSyncTimer: any = null;
+
+  getIsSyncing(): boolean {
+    return this.isSyncing;
+  }
+
+  private scheduleBackgroundSync(): void {
+    if (!googleDriveService.getUser()) return;
+
+    if (this.autoSyncTimer) {
+      clearTimeout(this.autoSyncTimer);
+    }
+
+    this.autoSyncTimer = setTimeout(async () => {
+      try {
+        await googleDriveService.saveToDrive(this.getTasks(), this.getCategories());
+      } catch (e) {
+        console.warn('Background Google Drive sync failed:', e);
+      }
+    }, 1500);
+  }
+
+  // --- CATEGORIES API ---
   getCategories(): Category[] {
     try {
       const raw = localStorage.getItem(STORAGE_KEYS.CATEGORIES);
@@ -96,15 +248,16 @@ export const storageService = {
       console.error('Failed to load categories from localStorage:', e);
       return DEFAULT_CATEGORIES;
     }
-  },
+  }
 
   saveCategories(categories: Category[]): void {
     try {
       localStorage.setItem(STORAGE_KEYS.CATEGORIES, JSON.stringify(categories));
+      this.scheduleBackgroundSync();
     } catch (e) {
-      console.error('Failed to save categories to localStorage:', e);
+      console.error('Failed to save categories:', e);
     }
-  },
+  }
 
   addCategory(name: string, color?: string): Category {
     const categories = this.getCategories();
@@ -116,7 +269,7 @@ export const storageService = {
     categories.push(newCategory);
     this.saveCategories(categories);
     return newCategory;
-  },
+  }
 
   updateCategory(updatedCategory: Category): void {
     const categories = this.getCategories();
@@ -125,7 +278,7 @@ export const storageService = {
       categories[index] = updatedCategory;
       this.saveCategories(categories);
     }
-  },
+  }
 
   deleteCategory(categoryId: string): void {
     const categories = this.getCategories().filter((c) => c.id !== categoryId);
@@ -145,9 +298,9 @@ export const storageService = {
     if (hasChanges) {
       this.saveTasks(updatedTasks);
     }
-  },
+  }
 
-  // Tasks
+  // --- TASKS API ---
   getTasks(): TaskItem[] {
     try {
       const raw = localStorage.getItem(STORAGE_KEYS.TASKS);
@@ -156,7 +309,6 @@ export const storageService = {
         return DEFAULT_TASKS;
       }
       const parsed: TaskItem[] = JSON.parse(raw);
-      // Ensure subtasks array exists on older records
       return parsed.map((t) => ({
         ...t,
         subtasks: Array.isArray(t.subtasks) ? t.subtasks : []
@@ -165,15 +317,16 @@ export const storageService = {
       console.error('Failed to load tasks from localStorage:', e);
       return DEFAULT_TASKS;
     }
-  },
+  }
 
   saveTasks(tasks: TaskItem[]): void {
     try {
       localStorage.setItem(STORAGE_KEYS.TASKS, JSON.stringify(tasks));
+      this.scheduleBackgroundSync();
     } catch (e) {
-      console.error('Failed to save tasks to localStorage:', e);
+      console.error('Failed to save tasks:', e);
     }
-  },
+  }
 
   addTask(task: Omit<TaskItem, 'id' | 'createdAt' | 'sortOrder'>): TaskItem {
     const tasks = this.getTasks();
@@ -185,12 +338,11 @@ export const storageService = {
       subtasks: task.subtasks || []
     };
 
-    // Increment sortOrder for existing tasks
     const shiftedTasks = tasks.map((t) => ({ ...t, sortOrder: t.sortOrder + 1 }));
     shiftedTasks.unshift(newTask);
     this.saveTasks(shiftedTasks);
     return newTask;
-  },
+  }
 
   updateTask(updatedTask: TaskItem): void {
     const tasks = this.getTasks();
@@ -199,12 +351,12 @@ export const storageService = {
       tasks[index] = updatedTask;
       this.saveTasks(tasks);
     }
-  },
+  }
 
   deleteTask(taskId: string): void {
     const tasks = this.getTasks().filter((t) => t.id !== taskId);
     this.saveTasks(tasks);
-  },
+  }
 
   toggleTaskCompletion(taskId: string): { updatedTask?: TaskItem; nextRecurringTask?: TaskItem } {
     const tasks = this.getTasks();
@@ -217,7 +369,6 @@ export const storageService = {
     const updatedTask: TaskItem = {
       ...currentTask,
       isCompleted: newCompletionState,
-      // If marking as completed, also mark subtasks as completed
       subtasks: newCompletionState
         ? currentTask.subtasks.map((s) => ({ ...s, isCompleted: true }))
         : currentTask.subtasks
@@ -227,7 +378,6 @@ export const storageService = {
 
     let nextRecurringTask: TaskItem | undefined;
 
-    // Handle recurrence: when completing a recurring task, spawn the next occurrence
     if (newCompletionState && currentTask.isRecurring && currentTask.recurrenceInterval !== 'NONE') {
       const nextDueDate = this.calculateNextDueDate(currentTask.dueDate, currentTask.recurrenceInterval);
       nextRecurringTask = {
@@ -248,7 +398,7 @@ export const storageService = {
 
     this.saveTasks(tasks);
     return { updatedTask, nextRecurringTask };
-  },
+  }
 
   toggleSubtaskCompletion(taskId: string, subtaskId: string): TaskItem | null {
     const tasks = this.getTasks();
@@ -264,19 +414,18 @@ export const storageService = {
     const updatedTask: TaskItem = {
       ...task,
       subtasks,
-      // Automatically toggle parent task if all subtasks are finished
       isCompleted: allSubtasksDone ? true : task.isCompleted
     };
 
     tasks[taskIndex] = updatedTask;
     this.saveTasks(tasks);
     return updatedTask;
-  },
+  }
 
   clearCompletedTasks(): void {
-    const tasks = this.getTasks().filter((t) => !t.isCompleted);
-    this.saveTasks(tasks);
-  },
+    const remaining = this.getTasks().filter((t) => !t.isCompleted);
+    this.saveTasks(remaining);
+  }
 
   reorderTasks(reorderedTasks: TaskItem[]): void {
     const updated = reorderedTasks.map((task, idx) => ({
@@ -284,7 +433,7 @@ export const storageService = {
       sortOrder: idx
     }));
     this.saveTasks(updated);
-  },
+  }
 
   calculateNextDueDate(currentDueDate: number | null, interval: RecurrenceInterval): number {
     const baseDate = currentDueDate ? new Date(currentDueDate) : new Date();
@@ -307,9 +456,80 @@ export const storageService = {
         break;
     }
     return nextDate.getTime();
-  },
+  }
 
-  // BYOK & Tier Configuration
+  // --- SEAMLESS GOOGLE DRIVE SYNC & MERGE ---
+  async syncAndMerge(): Promise<{ mergedTasksCount: number; mergedCategoriesCount: number; success: boolean; error?: string }> {
+    if (!googleDriveService.getUser()) return { mergedTasksCount: 0, mergedCategoriesCount: 0, success: false, error: 'Not signed in' };
+
+    this.isSyncing = true;
+    try {
+      // 1. Fetch local data
+      const localCategories = this.getCategories();
+      const localTasks = this.getTasks();
+
+      // 2. Fetch Google Drive data
+      const driveData = await googleDriveService.loadFromDrive();
+      const driveCategories = driveData?.categories || [];
+      const driveTasks = driveData?.tasks || [];
+
+      // 3. Merge Categories
+      const categoryMap = new Map<string, Category>();
+      driveCategories.forEach((c) => categoryMap.set(c.id, c));
+      localCategories.forEach((localCat) => {
+        if (!categoryMap.has(localCat.id)) {
+          categoryMap.set(localCat.id, localCat);
+        }
+      });
+      const mergedCategories = Array.from(categoryMap.values());
+      localStorage.setItem(STORAGE_KEYS.CATEGORIES, JSON.stringify(mergedCategories));
+
+      // 4. Merge Tasks
+      const taskMap = new Map<string, TaskItem>();
+      driveTasks.forEach((t) => taskMap.set(t.id, t));
+      localTasks.forEach((localTask) => {
+        if (!taskMap.has(localTask.id)) {
+          taskMap.set(localTask.id, localTask);
+        }
+      });
+      const mergedTasks = Array.from(taskMap.values()).sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0));
+      localStorage.setItem(STORAGE_KEYS.TASKS, JSON.stringify(mergedTasks));
+
+      // 5. Upload merged snapshot to Google Drive
+      const saveRes = await googleDriveService.saveToDrive(mergedTasks, mergedCategories);
+
+      return {
+        mergedTasksCount: mergedTasks.length,
+        mergedCategoriesCount: mergedCategories.length,
+        success: saveRes.success,
+        error: saveRes.error
+      };
+    } catch (e: any) {
+      console.error('Failed to sync and merge data with Google Drive:', e);
+      return { mergedTasksCount: 0, mergedCategoriesCount: 0, success: false, error: e?.message };
+    } finally {
+      this.isSyncing = false;
+    }
+  }
+
+  // --- MANUAL CLOUD PULL/PUSH ---
+  async syncToCloud(): Promise<{ success: boolean; error?: string }> {
+    if (!googleDriveService.getUser()) return { success: false, error: 'Not signed in with Google.' };
+    this.isSyncing = true;
+    try {
+      const categories = this.getCategories();
+      const tasks = this.getTasks();
+      const res = await googleDriveService.saveToDrive(tasks, categories);
+      return res;
+    } catch (e: any) {
+      console.error('Failed manual sync to Google Drive:', e);
+      return { success: false, error: e?.message || 'Failed to sync with Google Drive.' };
+    } finally {
+      this.isSyncing = false;
+    }
+  }
+
+  // --- BYOK & TIER CONFIGURATION ---
   getBYOKConfig(): BYOKConfig {
     try {
       const raw = localStorage.getItem(STORAGE_KEYS.BYOK_CONFIG);
@@ -318,7 +538,6 @@ export const storageService = {
         return DEFAULT_BYOK_CONFIG;
       }
       const parsed = JSON.parse(raw);
-      // Auto-migrate legacy/discontinued models to gemini-3.6-flash
       if (!parsed.model || !ALLOWED_TASK_MODELS.includes(parsed.model)) {
         parsed.model = 'gemini-3.6-flash';
         localStorage.setItem(STORAGE_KEYS.BYOK_CONFIG, JSON.stringify(parsed));
@@ -328,7 +547,7 @@ export const storageService = {
       console.error('Failed to load BYOK config:', e);
       return DEFAULT_BYOK_CONFIG;
     }
-  },
+  }
 
   saveBYOKConfig(config: BYOKConfig): void {
     try {
@@ -336,14 +555,14 @@ export const storageService = {
     } catch (e) {
       console.error('Failed to save BYOK config:', e);
     }
-  },
+  }
 
   incrementDemoAiUses(): number {
     const config = this.getBYOKConfig();
     config.demoAiUsesCount = (config.demoAiUsesCount || 0) + 1;
     this.saveBYOKConfig(config);
     return config.demoAiUsesCount;
-  },
+  }
 
   canUseAi(config: BYOKConfig): { allowed: boolean; reason?: string } {
     if (config.apiKey && config.isValidated) {
@@ -356,14 +575,14 @@ export const storageService = {
       allowed: false,
       reason: `You've used all ${FREE_TIER_LIMITS.MAX_DEMO_AI_USES} free AI trials. Enter your personal Gemini API Key in Settings to unlock unlimited use for free!`
     };
-  },
+  }
 
-  // Backup & Reset
+  // --- BACKUP & RESET ---
   resetToDefaults(): void {
     localStorage.setItem(STORAGE_KEYS.CATEGORIES, JSON.stringify(DEFAULT_CATEGORIES));
     localStorage.setItem(STORAGE_KEYS.TASKS, JSON.stringify(DEFAULT_TASKS));
     localStorage.setItem(STORAGE_KEYS.BYOK_CONFIG, JSON.stringify(DEFAULT_BYOK_CONFIG));
-  },
+  }
 
   exportData(): string {
     const data = {
@@ -373,7 +592,7 @@ export const storageService = {
       version: '1.0.0'
     };
     return JSON.stringify(data, null, 2);
-  },
+  }
 
   importData(jsonString: string): { success: boolean; message: string } {
     try {
@@ -388,4 +607,6 @@ export const storageService = {
       return { success: false, message: 'Failed to parse backup JSON file.' };
     }
   }
-};
+}
+
+export const storageService = new StorageService();

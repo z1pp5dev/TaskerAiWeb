@@ -10,7 +10,7 @@ echo.
 :: Check if python is available
 python --version >nul 2>&1
 if %errorlevel% equ 0 (
-    echo Launching Python HTTP Server...
+    echo Launching Python HTTP Server on http://localhost:3000/preview.html ...
     start http://localhost:3000/preview.html
     python -m http.server 3000
     goto end
@@ -19,14 +19,13 @@ if %errorlevel% equ 0 (
 :: If node is available
 node -v >nul 2>&1
 if %errorlevel% equ 0 (
-    echo Launching with npm...
+    echo Launching with npm dev server...
     npm run dev
     goto end
 )
 
-:: Fallback: Open preview.html directly in default browser
-echo Opening Tasker AI standalone directly in your browser...
-start preview.html
+:: Fallback
+start http://localhost:3000/preview.html
 
 :end
 pause

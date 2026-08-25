@@ -11,6 +11,7 @@ import {
 } from './types';
 import { storageService } from './services/storageService';
 import { geminiService } from './services/geminiService';
+import { googleDriveService, GoogleDriveUser } from './services/googleDriveService';
 import { GoalInput } from './components/GoalInput';
 import { DateStrip } from './components/DateStrip';
 import { CategoryManager } from './components/CategoryManager';
@@ -19,6 +20,7 @@ import { AddEditTaskModal } from './components/AddEditTaskModal';
 import { AiBreakdownModal } from './components/AiBreakdownModal';
 import { SettingsModal } from './components/SettingsModal';
 import { UpgradeModal } from './components/UpgradeModal';
+import { CloudSyncModal } from './components/CloudSyncModal';
 import { HistoryArchive } from './components/HistoryArchive';
 import { Toast } from './components/Toast';
 import {
@@ -30,7 +32,11 @@ import {
   Key,
   ShieldCheck,
   Zap,
-  Sparkles
+  Sparkles,
+  Cloud,
+  CloudCheck,
+  CloudOff,
+  HardDrive
 } from 'lucide-react';
 
 export const App: React.FC = () => {
@@ -39,6 +45,8 @@ export const App: React.FC = () => {
   const [categories, setCategories] = useState<Category[]>([]);
   const [byokConfig, setByokConfig] = useState<BYOKConfig>(storageService.getBYOKConfig());
   const [currentScreen, setCurrentScreen] = useState<AppScreen>('DASHBOARD');
+  const [user, setUser] = useState<GoogleDriveUser | null>(googleDriveService.getUser());
+  const [isSyncing, setIsSyncing] = useState(false);
 
   // Filters
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
@@ -56,6 +64,7 @@ export const App: React.FC = () => {
   const [isAiBreakdownModalOpen, setIsAiBreakdownModalOpen] = useState(false);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
   const [isUpgradeModalOpen, setIsUpgradeModalOpen] = useState(false);
+  const [isCloudSyncModalOpen, setIsCloudSyncModalOpen] = useState(false);
   const [isAiLoading, setIsAiLoading] = useState(false);
   const [toasts, setToasts] = useState<ToastNotification[]>([]);
 
@@ -65,10 +74,6 @@ export const App: React.FC = () => {
     setCategories(storageService.getCategories());
     setByokConfig(storageService.getBYOKConfig());
   }, []);
-
-  useEffect(() => {
-    loadData();
-  }, [loadData]);
 
   // Toast Helper
   const showToast = useCallback((message: string, type: 'success' | 'error' | 'info' = 'info') => {
@@ -81,6 +86,61 @@ export const App: React.FC = () => {
 
   const dismissToast = (id: string) => {
     setToasts((prev) => prev.filter((t) => t.id !== id));
+  };
+
+  // Google Drive Cloud Sync Lifecycle
+  useEffect(() => {
+    loadData();
+
+    // Check for existing Google Drive user session
+    const currentUser = googleDriveService.getUser();
+    setUser(currentUser);
+    if (currentUser) {
+      setIsSyncing(true);
+      storageService.syncAndMerge().then((res) => {
+        setIsSyncing(false);
+        loadData();
+        if (res.error) {
+          showToast(res.error, 'error');
+        } else if (res.mergedTasksCount > 0) {
+          showToast(`Google Drive: ${res.mergedTasksCount} tasks synchronized.`, 'info');
+        }
+      });
+    }
+
+    // Subscribe to Google Drive auth state changes
+    const unsubscribe = googleDriveService.onAuthStateChange(async (updatedUser) => {
+      setUser(updatedUser);
+      if (updatedUser) {
+        setIsSyncing(true);
+        const res = await storageService.syncAndMerge();
+        setIsSyncing(false);
+        loadData();
+        if (res.error) {
+          showToast(res.error, 'error');
+        } else {
+          showToast(`Connected to Google Drive as ${updatedUser.name}! Merged ${res.mergedTasksCount} tasks.`, 'success');
+        }
+      } else {
+        loadData();
+      }
+    });
+
+    return () => {
+      unsubscribe();
+    };
+  }, [loadData, showToast]);
+
+  const handleSyncNow = async () => {
+    setIsSyncing(true);
+    const res = await storageService.syncAndMerge();
+    setIsSyncing(false);
+    loadData();
+    if (res.error) {
+      showToast(res.error, 'error');
+    } else {
+      showToast(`Synced ${res.mergedTasksCount} tasks with Google Drive!`, 'success');
+    }
   };
 
   // Determine Active Tier
@@ -353,6 +413,26 @@ export const App: React.FC = () => {
 
           {/* Right Action Icons */}
           <div className="flex items-center gap-1.5">
+            {/* Cloud Sync Button */}
+            <button
+              onClick={() => setIsCloudSyncModalOpen(true)}
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-[11px] font-bold border transition-all active:scale-95 ${
+                user
+                  ? 'bg-cyan-950/60 border-cyan-500/50 text-cyan-300 hover:bg-cyan-950'
+                  : 'bg-slate-850 hover:bg-slate-800 text-slate-400 hover:text-slate-200 border-slate-700/80'
+              }`}
+              title={user ? `Signed in as ${user.email} (Cloud Synced)` : 'Google Cloud Backup & Sync (Guest Mode)'}
+            >
+              {isSyncing ? (
+                <Cloud className="w-3 h-3 text-cyan-400 animate-spin" />
+              ) : user ? (
+                <CloudCheck className="w-3 h-3 text-emerald-400" />
+              ) : (
+                <Cloud className="w-3 h-3 text-slate-400" />
+              )}
+              <span className="hidden sm:inline">{user ? 'Synced' : 'Sync'}</span>
+            </button>
+
             {/* Tier Badge Button */}
             <button
               onClick={() => setIsUpgradeModalOpen(true)}
@@ -543,10 +623,12 @@ export const App: React.FC = () => {
         <SettingsModal
           config={byokConfig}
           tier={currentTier}
+          user={user}
           onClose={() => setIsSettingsModalOpen(false)}
           onSaveConfig={handleSaveBYOKConfig}
           onDataImported={loadData}
           onShowToast={showToast}
+          onOpenCloudSync={() => setIsCloudSyncModalOpen(true)}
         />
       )}
 
@@ -555,6 +637,16 @@ export const App: React.FC = () => {
           tier={currentTier}
           onClose={() => setIsUpgradeModalOpen(false)}
           onOpenSettings={() => setIsSettingsModalOpen(true)}
+        />
+      )}
+
+      {isCloudSyncModalOpen && (
+        <CloudSyncModal
+          user={user}
+          isSyncing={isSyncing}
+          onClose={() => setIsCloudSyncModalOpen(false)}
+          onSyncNow={handleSyncNow}
+          onShowToast={showToast}
         />
       )}
 

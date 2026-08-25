@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { BYOKConfig, UserTier } from '../types';
 import { geminiService } from '../services/geminiService';
 import { storageService } from '../services/storageService';
+import { GoogleDriveUser } from '../services/googleDriveService';
 import {
   Key,
   CheckCircle2,
@@ -16,16 +17,23 @@ import {
   RotateCcw,
   X,
   Sparkles,
-  Zap
+  Zap,
+  Cloud,
+  CloudCheck,
+  CloudOff,
+  HardDrive,
+  ChevronRight
 } from 'lucide-react';
 
 interface SettingsModalProps {
   config: BYOKConfig;
   tier: UserTier;
+  user?: GoogleDriveUser | null;
   onClose: () => void;
   onSaveConfig: (config: BYOKConfig) => void;
   onDataImported: () => void;
   onShowToast: (message: string, type: 'success' | 'error' | 'info') => void;
+  onOpenCloudSync?: () => void;
 }
 
 const DEFAULT_MODELS = [
@@ -38,10 +46,12 @@ const DEFAULT_MODELS = [
 export const SettingsModal: React.FC<SettingsModalProps> = ({
   config,
   tier,
+  user,
   onClose,
   onSaveConfig,
   onDataImported,
-  onShowToast
+  onShowToast,
+  onOpenCloudSync
 }) => {
   const [apiKey, setApiKey] = useState(config.apiKey);
   const [selectedModel, setSelectedModel] = useState((config.model && config.model.includes('3.6')) ? config.model : 'gemini-3.6-flash');
@@ -297,10 +307,55 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </select>
           </div>
 
+          {/* Google Drive Direct Sync Section */}
+          <div className="flex flex-col gap-2.5 pt-3 border-t border-slate-800">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-1.5">
+                <HardDrive className="w-3.5 h-3.5 text-cyan-400" />
+                <span>Google Drive Direct Sync</span>
+              </label>
+              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                user
+                  ? 'bg-emerald-950/80 text-emerald-300 border-emerald-500/40'
+                  : 'bg-slate-800 text-slate-400 border-slate-700'
+              }`}>
+                {user ? 'Drive Connected' : 'Local Only'}
+              </span>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => {
+                onClose();
+                onOpenCloudSync?.();
+              }}
+              className="p-3.5 rounded-2xl bg-slate-850 hover:bg-slate-800 border border-slate-700/80 hover:border-cyan-500/50 transition-all flex items-center justify-between group text-left"
+            >
+              <div className="flex items-center gap-3">
+                <div className={`p-2 rounded-xl ${
+                  user
+                    ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                    : 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/30'
+                }`}>
+                  {user ? <CloudCheck className="w-4 h-4" /> : <HardDrive className="w-4 h-4" />}
+                </div>
+                <div>
+                  <h4 className="text-xs font-bold text-slate-100 group-hover:text-cyan-200 transition-colors">
+                    {user ? 'Manage Google Drive Sync' : 'Connect Personal Google Drive'}
+                  </h4>
+                  <p className="text-[11px] text-slate-400">
+                    {user ? user.email : 'Zero-backend • Automatic private backup in your Google Drive'}
+                  </p>
+                </div>
+              </div>
+              <ChevronRight className="w-4 h-4 text-slate-500 group-hover:text-cyan-400 transition-colors" />
+            </button>
+          </div>
+
           {/* Data Backup & Restore */}
           <div className="flex flex-col gap-3 pt-3 border-t border-slate-800">
             <label className="text-xs font-bold uppercase tracking-wider text-slate-400">
-              Data & Backup Management
+              Manual Data Backup & Export
             </label>
             <div className="grid grid-cols-2 gap-3">
               <button
