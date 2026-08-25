@@ -2,7 +2,7 @@
 <html lang="en" class="dark">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="./public/favicon.svg" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
     <meta name="theme-color" content="#090d16" />
     <title>Tasker AI — Productivity Engine</title>
@@ -19,21 +19,7 @@
     </script>
   </head>
   <body class="bg-[#090d16] text-[#f8fafc] antialiased selection:bg-purple-500/30 selection:text-purple-200 min-h-screen">
-    <div id="root">
-      <!-- Fallback container in case file:// redirect is blocked -->
-      <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; padding: 24px; text-align: center; font-family: 'Inter', sans-serif;">
-        <div style="width: 56px; height: 56px; border-radius: 16px; background: linear-gradient(135deg, #a855f7, #6366f1); display: flex; align-items: center; justify-content: center; color: white; font-size: 24px; font-weight: bold; margin-bottom: 16px; box-shadow: 0 10px 25px rgba(168, 85, 247, 0.4);">
-          ✓
-        </div>
-        <h1 style="font-size: 22px; font-weight: 800; color: #f8fafc; margin-bottom: 8px;">Tasker AI — Productivity Engine</h1>
-        <p style="font-size: 14px; color: #94a3b8; max-width: 440px; line-height: 1.5; margin-bottom: 24px;">
-          Opening directly in browser. Click the button below to launch the standalone application instantly:
-        </p>
-        <a href="./preview.html" style="padding: 12px 28px; background: #a855f7; color: white; border-radius: 14px; text-decoration: none; font-weight: 700; font-size: 14px; box-shadow: 0 8px 20px rgba(168, 85, 247, 0.35);">
-          Launch Tasker AI Web App →
-        </a>
-      </div>
-    </div>
-    <script type="module" src="./src/main.tsx"></script>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
