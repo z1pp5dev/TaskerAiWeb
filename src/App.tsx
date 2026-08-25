@@ -34,7 +34,6 @@ import {
   Zap,
   Sparkles,
   Cloud,
-  CloudCheck,
   CloudOff,
   HardDrive
 } from 'lucide-react';
@@ -426,7 +425,7 @@ export const App: React.FC = () => {
               {isSyncing ? (
                 <Cloud className="w-3 h-3 text-cyan-400 animate-spin" />
               ) : user ? (
-                <CloudCheck className="w-3 h-3 text-emerald-400" />
+                <Cloud className="w-3 h-3 text-emerald-400" />
               ) : (
                 <Cloud className="w-3 h-3 text-slate-400" />
               )}

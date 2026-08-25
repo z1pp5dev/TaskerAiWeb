@@ -19,7 +19,6 @@ import {
   Sparkles,
   Zap,
   Cloud,
-  CloudCheck,
   CloudOff,
   HardDrive,
   ChevronRight
@@ -337,7 +336,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
                     : 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/30'
                 }`}>
-                  {user ? <CloudCheck className="w-4 h-4" /> : <HardDrive className="w-4 h-4" />}
+                  {user ? <Cloud className="w-4 h-4" /> : <HardDrive className="w-4 h-4" />}
                 </div>
                 <div>
                   <h4 className="text-xs font-bold text-slate-100 group-hover:text-cyan-200 transition-colors">

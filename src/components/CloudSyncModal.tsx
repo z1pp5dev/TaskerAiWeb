@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import {
   HardDrive,
-  CloudCheck,
+  Cloud,
   CloudOff,
   RefreshCw,
   LogOut,
@@ -99,7 +99,7 @@ export const CloudSyncModal: React.FC<CloudSyncModalProps> = ({
                       : 'bg-slate-800 text-slate-400 border border-slate-700'
                   }`}
                 >
-                  {user ? <CloudCheck className="w-5 h-5" /> : <CloudOff className="w-5 h-5" />}
+                  {user ? <Cloud className="w-5 h-5" /> : <CloudOff className="w-5 h-5" />}
                 </div>
               )}
               <div>
