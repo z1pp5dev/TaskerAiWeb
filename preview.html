@@ -691,7 +691,7 @@ Break down user goal into 3-5 sequential actionable milestones. Return ONLY a JS
           try {
             const tokenClient = google.accounts.oauth2.initTokenClient({
               client_id: clientId,
-              scope: 'https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile',
+              scope: 'https://www.googleapis.com/auth/drive.appdata https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile',
               callback: async (tokenResp) => {
                 if (tokenResp.error) {
                   const errStr = String(tokenResp.error_description || tokenResp.error);
@@ -715,7 +715,8 @@ Break down user goal into 3-5 sequential actionable milestones. Return ONLY a JS
                       id: data.sub,
                       name: data.name || data.given_name || 'Google User',
                       email: data.email,
-                      picture: data.picture
+                      picture: data.picture,
+                      accessToken: token
                     };
                     localStorage.setItem('tasker_ai_google_user_profile_v1', JSON.stringify(profile));
                     resolve({ success: true, user: profile });
@@ -723,7 +724,8 @@ Break down user goal into 3-5 sequential actionable milestones. Return ONLY a JS
                     const fallback = {
                       id: 'google_user_' + Date.now(),
                       name: 'Google User',
-                      email: 'user@gmail.com'
+                      email: 'user@gmail.com',
+                      accessToken: token
                     };
                     localStorage.setItem('tasker_ai_google_user_profile_v1', JSON.stringify(fallback));
                     resolve({ success: true, user: fallback });
@@ -732,7 +734,8 @@ Break down user goal into 3-5 sequential actionable milestones. Return ONLY a JS
                   const fallback = {
                     id: 'google_user_' + Date.now(),
                     name: 'Google User',
-                    email: 'user@gmail.com'
+                    email: 'user@gmail.com',
+                    accessToken: token
                   };
                   localStorage.setItem('tasker_ai_google_user_profile_v1', JSON.stringify(fallback));
                   resolve({ success: true, user: fallback });
@@ -753,8 +756,8 @@ Break down user goal into 3-5 sequential actionable milestones. Return ONLY a JS
         const token = localStorage.getItem('tasker_ai_google_auth_token_v1');
         if (!token) return { fileId: null, error: 'Not authenticated with Google.' };
         try {
-          const query = encodeURIComponent("name = 'TaskerAI_Backup.json' and trashed = false");
-          const resp = await fetch(`https://www.googleapis.com/drive/v3/files?q=${query}&fields=files(id,name)&spaces=drive`, {
+          const query = encodeURIComponent("name = 'tasker_ai_backup.json' and 'appDataFolder' in parents and trashed = false");
+          const resp = await fetch(`https://www.googleapis.com/drive/v3/files?spaces=appDataFolder&q=${query}&fields=files(id,name)`, {
             headers: { Authorization: `Bearer ${token}` }
           });
           if (!resp.ok) {
@@ -777,18 +780,17 @@ Break down user goal into 3-5 sequential actionable milestones. Return ONLY a JS
             return { fileId: data.files[0].id };
           }
 
-          // Create file
-          const metadata = { name: 'TaskerAI_Backup.json', mimeType: 'application/json', description: 'Tasker AI Cloud Backup File' };
-          const initial = { tasks: [], categories: [], lastSyncedAt: Date.now(), version: '1.0.0' };
-          const boundary = '-------314159265358979323846';
-          const body = `\r\n--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n--${boundary}\r\nContent-Type: application/json\r\n\r\n${JSON.stringify(initial)}\r\n--${boundary}--`;
+          // Create file in appDataFolder
+          const metadata = { name: 'tasker_ai_backup.json', parents: ['appDataFolder'] };
+          const initial = { version: '1.0.0', lastSynced: new Date().toISOString(), tasks: [], categories: [], brainDump: '' };
+          const form = new FormData();
+          form.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
+          form.append('file', new Blob([JSON.stringify(initial, null, 2)], { type: 'application/json' }));
+
           const createResp = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
             method: 'POST',
-            headers: {
-              Authorization: `Bearer ${token}`,
-              'Content-Type': `multipart/related; boundary=${boundary}`
-            },
-            body
+            headers: { Authorization: `Bearer ${token}` },
+            body: form
           });
           if (createResp.ok) {
             const createData = await createResp.json();
@@ -821,12 +823,12 @@ Break down user goal into 3-5 sequential actionable milestones. Return ONLY a JS
           return null;
         } catch (e) { return null; }
       },
-      async saveToDrive(tasks, categories) {
+      async saveToDrive(tasks, categories, brainDump) {
         const token = localStorage.getItem('tasker_ai_google_auth_token_v1');
         const { fileId, error } = await this.getOrCreateDriveFileId();
         if (!fileId || !token) return { success: false, error: error || 'Could not access Google Drive.' };
         try {
-          const data = { tasks, categories, lastSyncedAt: Date.now(), version: '1.0.0' };
+          const data = { version: '1.0.0', lastSynced: new Date().toISOString(), tasks, categories, brainDump: brainDump || '' };
           const resp = await fetch(`https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=media`, {
             method: 'PATCH',
             headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
