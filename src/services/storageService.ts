@@ -467,13 +467,26 @@ class StorageService {
       // 1. Fetch local data
       const localCategories = this.getCategories();
       const localTasks = this.getTasks();
+      const localBYOK = this.getBYOKConfig();
 
       // 2. Fetch Google Drive data
       const driveData = await googleDriveService.loadFromDrive();
       const driveCategories = driveData?.categories || [];
       const driveTasks = driveData?.tasks || [];
+      const driveBYOK = driveData?.byokConfig;
 
-      // 3. Merge Categories
+      // 3. Merge BYOK Config (Sync API Key across devices)
+      let mergedBYOK = localBYOK;
+      if (driveBYOK && driveBYOK.apiKey && driveBYOK.isValidated) {
+        if (!localBYOK.apiKey || !localBYOK.isValidated || (driveBYOK.lastValidatedAt || 0) >= (localBYOK.lastValidatedAt || 0)) {
+          mergedBYOK = driveBYOK;
+          this.saveBYOKConfig(mergedBYOK);
+        }
+      } else if (localBYOK.apiKey && localBYOK.isValidated) {
+        mergedBYOK = localBYOK;
+      }
+
+      // 4. Merge Categories
       const categoryMap = new Map<string, Category>();
       driveCategories.forEach((c) => categoryMap.set(c.id, c));
       localCategories.forEach((localCat) => {
@@ -484,7 +497,7 @@ class StorageService {
       const mergedCategories = Array.from(categoryMap.values());
       localStorage.setItem(STORAGE_KEYS.CATEGORIES, JSON.stringify(mergedCategories));
 
-      // 4. Merge Tasks
+      // 5. Merge Tasks
       const taskMap = new Map<string, TaskItem>();
       driveTasks.forEach((t) => taskMap.set(t.id, t));
       localTasks.forEach((localTask) => {
@@ -495,8 +508,8 @@ class StorageService {
       const mergedTasks = Array.from(taskMap.values()).sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0));
       localStorage.setItem(STORAGE_KEYS.TASKS, JSON.stringify(mergedTasks));
 
-      // 5. Upload merged snapshot to Google Drive
-      const saveRes = await googleDriveService.saveToDrive(mergedTasks, mergedCategories);
+      // 6. Upload merged snapshot to Google Drive
+      const saveRes = await googleDriveService.saveToDrive(mergedTasks, mergedCategories, undefined, mergedBYOK);
 
       return {
         mergedTasksCount: mergedTasks.length,
@@ -519,7 +532,8 @@ class StorageService {
     try {
       const categories = this.getCategories();
       const tasks = this.getTasks();
-      const res = await googleDriveService.saveToDrive(tasks, categories);
+      const byokConfig = this.getBYOKConfig();
+      const res = await googleDriveService.saveToDrive(tasks, categories, undefined, byokConfig);
       return res;
     } catch (e: any) {
       console.error('Failed manual sync to Google Drive:', e);

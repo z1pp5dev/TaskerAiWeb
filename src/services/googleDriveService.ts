@@ -1,4 +1,4 @@
-import { TaskItem, Category } from '../types';
+import { TaskItem, Category, BYOKConfig } from '../types';
 
 export interface GoogleUserData {
   id?: string;
@@ -16,6 +16,7 @@ export interface AppDataBackup {
   categories: Category[];
   tasks: TaskItem[];
   brainDump?: string;
+  byokConfig?: BYOKConfig;
 }
 
 export interface GoogleDriveSyncData {
@@ -357,7 +358,7 @@ export class GoogleDriveService {
     return await loadFromGoogleDrive(token);
   }
 
-  async saveToDrive(tasks: TaskItem[], categories: Category[], brainDump?: string): Promise<GoogleDriveSyncResult> {
+  async saveToDrive(tasks: TaskItem[], categories: Category[], brainDump?: string, byokConfig?: BYOKConfig): Promise<GoogleDriveSyncResult> {
     const token = this.getAccessToken();
     if (!token) {
       return { success: false, error: 'Not authenticated with Google.' };
@@ -368,7 +369,8 @@ export class GoogleDriveService {
       lastSynced: new Date().toISOString(),
       tasks,
       categories,
-      brainDump: brainDump || ''
+      brainDump: brainDump || '',
+      byokConfig
     };
 
     const ok = await saveToGoogleDrive(token, backupData);

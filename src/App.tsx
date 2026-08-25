@@ -370,9 +370,17 @@ export const App: React.FC = () => {
   };
 
   // BYOK Save
-  const handleSaveBYOKConfig = (newConfig: BYOKConfig) => {
+  const handleSaveBYOKConfig = async (newConfig: BYOKConfig) => {
     storageService.saveBYOKConfig(newConfig);
     setByokConfig(newConfig);
+    if (googleDriveService.getUser()) {
+      setIsSyncing(true);
+      const res = await storageService.syncToCloud();
+      setIsSyncing(false);
+      if (res.success) {
+        showToast('Gemini API Key synced to your Google Drive backup!', 'success');
+      }
+    }
   };
 
   return (

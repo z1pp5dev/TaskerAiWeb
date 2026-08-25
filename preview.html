@@ -830,12 +830,13 @@ Break down user goal into 3-5 sequential actionable milestones. Return ONLY a JS
           return null;
         } catch (e) { return null; }
       },
-      async saveToDrive(tasks, categories, brainDump) {
+      async saveToDrive(tasks, categories, brainDump, byokConfig) {
         const token = localStorage.getItem('tasker_ai_google_auth_token_v1');
         const { fileId, error } = await this.getOrCreateDriveFileId();
         if (!fileId || !token) return { success: false, error: error || 'Could not access Google Drive.' };
         try {
-          const data = { version: '1.0.0', lastSynced: new Date().toISOString(), tasks, categories, brainDump: brainDump || '' };
+          const cfg = byokConfig || storageService.getBYOKConfig();
+          const data = { version: '1.0.0', lastSynced: new Date().toISOString(), tasks, categories, brainDump: brainDump || '', byokConfig: cfg };
           const resp = await fetch(`https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=media`, {
             method: 'PATCH',
             headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
@@ -1602,7 +1603,15 @@ Break down user goal into 3-5 sequential actionable milestones. Return ONLY a JS
               config={byokConfig}
               tier={currentTier}
               onClose={() => setIsSettingsOpen(false)}
-              onSave={(cfg) => { storageService.saveBYOKConfig(cfg); loadData(); }}
+              onSave={(cfg) => {
+                storageService.saveBYOKConfig(cfg);
+                loadData();
+                if (user) {
+                  googleDriveService.saveToDrive(storageService.getTasks(), storageService.getCategories(), '', cfg).then((res) => {
+                    if (res.success) showToast('Gemini API Key synced to your Google Drive backup!', 'success');
+                  });
+                }
+              }}
               onReset={() => { storageService.reset(); loadData(); setIsSettingsOpen(false); showToast('Reset to defaults'); }}
               showToast={showToast}
             />
@@ -2047,21 +2056,29 @@ Break down user goal into 3-5 sequential actionable milestones. Return ONLY a JS
           showToast(res.error, 'error');
         } else {
           setUser(res.user);
-          const saveRes = await googleDriveService.saveToDrive(storageService.getTasks(), storageService.getCategories());
+          const driveData = await googleDriveService.loadFromDrive();
+          if (driveData?.byokConfig?.apiKey && driveData.byokConfig.isValidated) {
+            storageService.saveBYOKConfig(driveData.byokConfig);
+          }
+          const saveRes = await googleDriveService.saveToDrive(storageService.getTasks(), storageService.getCategories(), '', storageService.getBYOKConfig());
           if (saveRes.error) {
             showToast(saveRes.error, 'error');
           } else {
-            showToast(`Connected to Google Drive as ${res.user.name}! Tasks synced.`, 'success');
+            showToast(`Connected to Google Drive as ${res.user.name}! Data & API key synced.`, 'success');
           }
         }
       };
 
       const handleSyncNow = async () => {
         setLoading(true);
-        const res = await googleDriveService.saveToDrive(storageService.getTasks(), storageService.getCategories());
+        const driveData = await googleDriveService.loadFromDrive();
+        if (driveData?.byokConfig?.apiKey && driveData.byokConfig.isValidated) {
+          storageService.saveBYOKConfig(driveData.byokConfig);
+        }
+        const res = await googleDriveService.saveToDrive(storageService.getTasks(), storageService.getCategories(), '', storageService.getBYOKConfig());
         setLoading(false);
         if (res.success) {
-          showToast('Tasks synced to TaskerAI_Backup.json on Google Drive!', 'success');
+          showToast('Tasks & Gemini API key synced to Google Drive!', 'success');
         } else {
           showToast(res.error || 'Failed to sync to Google Drive.', 'error');
         }
