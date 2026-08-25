@@ -13,6 +13,15 @@
     font-feature-settings: "cv02", "cv03", "cv04", "cv11";
   }
 
+  input, textarea, select {
+    background-color: #131b2e;
+    color: #f8fafc;
+  }
+
+  input::placeholder, textarea::placeholder {
+    color: #94a3b8;
+  }
+
   /* Custom scrollbar for horizontal chip bars and lists */
   ::-webkit-scrollbar {
     width: 6px;

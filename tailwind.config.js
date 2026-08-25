@@ -26,6 +26,10 @@ export default {
           'text-muted': '#94a3b8',
           'text-dim': '#64748b'
         },
+        slate: {
+          750: '#233044',
+          850: '#131b2e'
+        },
         priority: {
           low: {
             bg: '#082f49',

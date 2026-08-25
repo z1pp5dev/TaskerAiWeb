@@ -161,7 +161,7 @@ export const AddEditTaskModal: React.FC<AddEditTaskModalProps> = ({
               }}
               placeholder="What needs to be done?"
               autoFocus
-              className={`w-full px-4 py-3 rounded-2xl bg-slate-850 border text-sm text-slate-100 placeholder-slate-500 focus:outline-none transition-all ${
+              className={`w-full px-4 py-3 rounded-2xl bg-slate-900 border text-sm font-medium text-slate-100 placeholder-slate-400 focus:outline-none transition-all ${
                 titleError
                   ? 'border-rose-500 ring-1 ring-rose-500'
                   : 'border-slate-700 focus:border-purple-500 focus:ring-1 focus:ring-purple-500/50'
@@ -182,7 +182,7 @@ export const AddEditTaskModal: React.FC<AddEditTaskModalProps> = ({
               onChange={(e) => setDescription(e.target.value)}
               placeholder="Add extra details, checklist references, links, or context..."
               rows={2}
-              className="w-full px-4 py-2.5 rounded-2xl bg-slate-850 border border-slate-700 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-500/50 transition-all resize-none"
+              className="w-full px-4 py-2.5 rounded-2xl bg-slate-900 border border-slate-700 text-xs text-slate-100 placeholder-slate-400 focus:outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-500/50 transition-all resize-none"
             />
           </div>
 
