@@ -12,7 +12,12 @@ import {
 } from './types';
 import { storageService } from './services/storageService';
 import { geminiService } from './services/geminiService';
-import { googleDriveService, GoogleDriveUser } from './services/googleDriveService';
+import {
+  googleDriveService,
+  GoogleDriveUser,
+  saveToGoogleDrive,
+  AppDataBackup
+} from './services/googleDriveService';
 import { GoalInput } from './components/GoalInput';
 import { DateStrip } from './components/DateStrip';
 import { CategoryManager } from './components/CategoryManager';
@@ -303,10 +308,48 @@ export const App: React.FC = () => {
     loadData();
   };
 
-  const handleDeleteTask = (taskId: string) => {
+  const handleDeleteTask = async (taskId: string) => {
+    const remainingTasks = tasks.filter((t) => t.id !== taskId);
+    setTasks(remainingTasks);
     storageService.deleteTask(taskId);
-    loadData();
     showToast('Task deleted', 'info');
+
+    // Immediate Push to Drive to prevent 10s auto-sync polling from restoring it
+    const token = googleDriveService.getAccessToken();
+    const currentUser = storageService.getProUserData();
+    if (token) {
+      const payload: AppDataBackup = {
+        version: "1.0.0",
+        lastSynced: new Date().toISOString(),
+        user: currentUser,
+        categories: categories.map((c) => ({
+          id: String(c.id),
+          name: c.name,
+          color: c.color || '#a855f7',
+          icon: c.icon
+        })),
+        tasks: remainingTasks.map((t) => ({
+          id: String(t.id),
+          categoryId: t.categoryId ? String(t.categoryId) : '',
+          title: t.title,
+          description: t.description || '',
+          dueDate: t.dueDate ?? null,
+          isCompleted: Boolean(t.isCompleted),
+          isDeleted: false,
+          priority: (t.priority === 'HIGH' || t.priority === 'URGENT' ? 'High' : t.priority === 'LOW' ? 'Low' : 'Medium') as "High" | "Medium" | "Low",
+          isRecurring: Boolean(t.isRecurring),
+          recurrenceInterval: t.recurrenceInterval || 'NONE',
+          hasAlarm: Boolean(t.hasAlarm),
+          sortOrder: t.sortOrder,
+          createdAt: typeof t.createdAt === 'number' ? new Date(t.createdAt).toISOString() : String(t.createdAt || new Date().toISOString()),
+          updatedAt: new Date().toISOString(),
+          subtasks: t.subtasks || []
+        })),
+        brainDump: brainDump,
+        byokConfig: byokConfig
+      };
+      await saveToGoogleDrive(token, payload);
+    }
   };
 
   const handleRestoreTask = (taskId: string) => {
@@ -315,11 +358,49 @@ export const App: React.FC = () => {
     showToast('Task restored to active dashboard!', 'success');
   };
 
-  const handleClearCompleted = () => {
+  const handleClearCompleted = async () => {
     if (confirm('Clear all completed tasks from the active dashboard?')) {
+      const remainingTasks = tasks.filter((t) => !t.isCompleted);
+      setTasks(remainingTasks);
       storageService.clearCompletedTasks();
-      loadData();
       showToast('Cleared completed tasks.', 'info');
+
+      // Immediate Push to Drive to prevent 10s auto-sync polling from restoring it
+      const token = googleDriveService.getAccessToken();
+      const currentUser = storageService.getProUserData();
+      if (token) {
+        const payload: AppDataBackup = {
+          version: "1.0.0",
+          lastSynced: new Date().toISOString(),
+          user: currentUser,
+          categories: categories.map((c) => ({
+            id: String(c.id),
+            name: c.name,
+            color: c.color || '#a855f7',
+            icon: c.icon
+          })),
+          tasks: remainingTasks.map((t) => ({
+            id: String(t.id),
+            categoryId: t.categoryId ? String(t.categoryId) : '',
+            title: t.title,
+            description: t.description || '',
+            dueDate: t.dueDate ?? null,
+            isCompleted: false,
+            isDeleted: false,
+            priority: (t.priority === 'HIGH' || t.priority === 'URGENT' ? 'High' : t.priority === 'LOW' ? 'Low' : 'Medium') as "High" | "Medium" | "Low",
+            isRecurring: Boolean(t.isRecurring),
+            recurrenceInterval: t.recurrenceInterval || 'NONE',
+            hasAlarm: Boolean(t.hasAlarm),
+            sortOrder: t.sortOrder,
+            createdAt: typeof t.createdAt === 'number' ? new Date(t.createdAt).toISOString() : String(t.createdAt || new Date().toISOString()),
+            updatedAt: new Date().toISOString(),
+            subtasks: t.subtasks || []
+          })),
+          brainDump: brainDump,
+          byokConfig: byokConfig
+        };
+        await saveToGoogleDrive(token, payload);
+      }
     }
   };
 
@@ -631,11 +712,7 @@ export const App: React.FC = () => {
             onBackToDashboard={() => setCurrentScreen('DASHBOARD')}
             onRestoreTask={handleRestoreTask}
             onDeleteTask={handleDeleteTask}
-            onClearAllHistory={() => {
-              storageService.clearCompletedTasks();
-              loadData();
-              showToast('History archive cleared.', 'info');
-            }}
+            onClearAllHistory={handleClearCompleted}
           />
         )}
       </main>

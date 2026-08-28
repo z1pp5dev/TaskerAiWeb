@@ -358,16 +358,9 @@ class StorageService {
     return this.getTasks(true);
   }
 
-  saveTasks(tasks: TaskItem[], preserveTombstones = true): void {
+  saveTasks(tasks: TaskItem[]): void {
     try {
-      let finalTasks = tasks;
-      if (preserveTombstones) {
-        const allExisting = this.getAllTasks();
-        const incomingIds = new Set(tasks.map((t) => t.id));
-        const tombstonesToKeep = allExisting.filter((t) => t.isDeleted && !incomingIds.has(t.id));
-        finalTasks = [...tasks, ...tombstonesToKeep];
-      }
-      localStorage.setItem(STORAGE_KEYS.TASKS, JSON.stringify(finalTasks));
+      localStorage.setItem(STORAGE_KEYS.TASKS, JSON.stringify(tasks));
       this.scheduleBackgroundSync();
     } catch (e) {
       console.error('Failed to save tasks:', e);
@@ -375,7 +368,7 @@ class StorageService {
   }
 
   addTask(task: Omit<TaskItem, 'id' | 'createdAt' | 'sortOrder'>): TaskItem {
-    const tasks = this.getTasks(false);
+    const tasks = this.getTasks();
     const now = Date.now();
     const newTask: TaskItem = {
       ...task,
@@ -389,12 +382,12 @@ class StorageService {
 
     const shiftedTasks = tasks.map((t) => ({ ...t, sortOrder: t.sortOrder + 1 }));
     shiftedTasks.unshift(newTask);
-    this.saveTasks(shiftedTasks, true);
+    this.saveTasks(shiftedTasks);
     return newTask;
   }
 
   updateTask(updatedTask: TaskItem): void {
-    const allTasks = this.getAllTasks();
+    const allTasks = this.getTasks();
     const index = allTasks.findIndex((t) => t.id === updatedTask.id);
     const now = Date.now();
     const taskWithTimestamp: TaskItem = {
@@ -412,20 +405,8 @@ class StorageService {
   }
 
   deleteTask(taskId: string): void {
-    const allTasks = this.getAllTasks();
-    const now = Date.now();
-    const updated = allTasks.map((t) => {
-      if (t.id === taskId) {
-        return {
-          ...t,
-          isDeleted: true,
-          deletedAt: now,
-          updatedAt: now
-        };
-      }
-      return t;
-    });
-    localStorage.setItem(STORAGE_KEYS.TASKS, JSON.stringify(updated));
+    const remaining = this.getTasks().filter((t) => t.id !== taskId);
+    localStorage.setItem(STORAGE_KEYS.TASKS, JSON.stringify(remaining));
     this.scheduleBackgroundSync();
   }
 
@@ -501,30 +482,13 @@ class StorageService {
   }
 
   clearCompletedTasks(): void {
-    const allTasks = this.getAllTasks();
-    const now = Date.now();
-    let hasChanges = false;
-    const updated = allTasks.map((t) => {
-      if (t.isCompleted && !t.isDeleted) {
-        hasChanges = true;
-        return {
-          ...t,
-          isDeleted: true,
-          deletedAt: now,
-          updatedAt: now
-        };
-      }
-      return t;
-    });
-
-    if (hasChanges) {
-      localStorage.setItem(STORAGE_KEYS.TASKS, JSON.stringify(updated));
-      this.scheduleBackgroundSync();
-    }
+    const remaining = this.getTasks().filter((t) => !t.isCompleted);
+    localStorage.setItem(STORAGE_KEYS.TASKS, JSON.stringify(remaining));
+    this.scheduleBackgroundSync();
   }
 
   restoreTask(taskId: string): void {
-    const allTasks = this.getAllTasks();
+    const allTasks = this.getTasks();
     const now = Date.now();
     const updated = allTasks.map((t) => {
       if (t.id === taskId) {
