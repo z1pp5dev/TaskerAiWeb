@@ -16,6 +16,7 @@ import {
   googleDriveService,
   GoogleDriveUser,
   saveToGoogleDrive,
+  fetchFromGoogleDrive,
   AppDataBackup
 } from './services/googleDriveService';
 import { GoalInput } from './components/GoalInput';
@@ -45,6 +46,47 @@ import {
   HardDrive,
   Crown
 } from 'lucide-react';
+
+const normalizeRemoteTasks = (remoteTasks: any[]): TaskItem[] => {
+  return remoteTasks.map((t: any, idx: number) => {
+    let prio: Priority = 'MEDIUM';
+    if (t.priority === 'High' || t.priority === 'HIGH') prio = 'HIGH';
+    else if (t.priority === 'Low' || t.priority === 'LOW') prio = 'LOW';
+    else if (t.priority === 'URGENT') prio = 'URGENT';
+
+    let createdMs = Date.now();
+    if (typeof t.createdAt === 'number') createdMs = t.createdAt;
+    else if (t.createdAt) {
+      const parsed = new Date(t.createdAt).getTime();
+      if (!isNaN(parsed)) createdMs = parsed;
+    }
+
+    let updatedMs = createdMs;
+    if (typeof t.updatedAt === 'number') updatedMs = t.updatedAt;
+    else if (t.updatedAt) {
+      const parsed = new Date(t.updatedAt).getTime();
+      if (!isNaN(parsed)) updatedMs = parsed;
+    }
+
+    return {
+      id: String(t.id || 'task_' + Date.now() + '_' + idx),
+      title: t.title || 'Untitled Task',
+      description: t.description || '',
+      dueDate: t.dueDate ?? null,
+      priority: prio,
+      categoryId: t.categoryId ? String(t.categoryId) : null,
+      isCompleted: Boolean(t.isCompleted),
+      isDeleted: Boolean(t.isDeleted),
+      isRecurring: Boolean(t.isRecurring),
+      recurrenceInterval: t.recurrenceInterval || 'NONE',
+      hasAlarm: Boolean(t.hasAlarm),
+      sortOrder: typeof t.sortOrder === 'number' ? t.sortOrder : idx,
+      createdAt: createdMs,
+      updatedAt: updatedMs,
+      subtasks: Array.isArray(t.subtasks) ? t.subtasks : []
+    };
+  });
+};
 
 export const App: React.FC = () => {
   // State
@@ -139,29 +181,101 @@ export const App: React.FC = () => {
     });
 
     // Auto-pull fresh cloud changes when user returns to tab / focuses window
-    const handleFocusSync = () => {
+    const handleFocusSync = async () => {
       if (document.visibilityState === 'visible' && googleDriveService.getUser()) {
-        storageService.syncAndMerge().then((res) => {
-          if (res.success) {
-            loadData();
+        const token = googleDriveService.getAccessToken();
+        if (token) {
+          try {
+            const remoteData = await fetchFromGoogleDrive(token);
+            if (remoteData && remoteData.lastSynced) {
+              const localLastSynced = localStorage.getItem('tasker_ai_last_synced') || localStorage.getItem('tasker_ai_google_last_sync_v1') || '';
+              const remoteTime = new Date(remoteData.lastSynced).getTime();
+              const localTime = localLastSynced ? new Date(localLastSynced).getTime() : 0;
+
+              if (remoteTime > localTime) {
+                const normalizedTasks = normalizeRemoteTasks(remoteData.tasks || []).filter((t) => !t.isDeleted);
+                setTasks(normalizedTasks);
+                storageService.saveTasks(normalizedTasks);
+
+                if (Array.isArray(remoteData.categories)) {
+                  setCategories(remoteData.categories);
+                  storageService.saveCategories(remoteData.categories);
+                }
+                if (remoteData.brainDump !== undefined && typeof remoteData.brainDump === 'string') {
+                  setBrainDump(remoteData.brainDump);
+                  storageService.saveBrainDump(remoteData.brainDump);
+                }
+                if (remoteData.user) {
+                  setProUserData(remoteData.user);
+                  storageService.saveProUserData(remoteData.user);
+                }
+                if (remoteData.byokConfig?.apiKey && remoteData.byokConfig.isValidated) {
+                  setByokConfig(remoteData.byokConfig);
+                  storageService.saveBYOKConfig(remoteData.byokConfig);
+                }
+
+                localStorage.setItem('tasker_ai_tasks', JSON.stringify(normalizedTasks));
+                localStorage.setItem('tasker_ai_last_synced', remoteData.lastSynced);
+                localStorage.setItem('tasker_ai_google_last_sync_v1', remoteTime.toString());
+                console.log('[WebSync] 🔄 Ingested fresh remote changes on focus');
+              }
+            }
+          } catch (e) {
+            console.warn('[WebSync] Focus sync failed:', e);
           }
-        });
+        }
       }
     };
 
     window.addEventListener('visibilitychange', handleFocusSync);
     window.addEventListener('focus', handleFocusSync);
 
-    // Periodic cloud poll every 25s while active and signed in
-    const interval = setInterval(() => {
-      if (document.visibilityState === 'visible' && googleDriveService.getUser()) {
-        storageService.syncAndMerge().then((res) => {
-          if (res.success) {
-            loadData();
+    // 10-Second Auto-Polling Loop to check Google Drive for Android changes
+    const interval = setInterval(async () => {
+      try {
+        const token = googleDriveService.getAccessToken();
+        if (!token || document.visibilityState !== 'visible') return;
+
+        const remoteData = await fetchFromGoogleDrive(token);
+        if (remoteData && remoteData.lastSynced) {
+          const localLastSynced = localStorage.getItem('tasker_ai_last_synced') || localStorage.getItem('tasker_ai_google_last_sync_v1') || '';
+          
+          // If remote is newer than local, update React state & localStorage
+          const remoteTime = new Date(remoteData.lastSynced).getTime();
+          const localTime = localLastSynced ? new Date(localLastSynced).getTime() : 0;
+
+          if (remoteTime > localTime) {
+            const normalizedTasks = normalizeRemoteTasks(remoteData.tasks || []).filter((t) => !t.isDeleted);
+            setTasks(normalizedTasks);
+            storageService.saveTasks(normalizedTasks);
+
+            if (Array.isArray(remoteData.categories)) {
+              setCategories(remoteData.categories);
+              storageService.saveCategories(remoteData.categories);
+            }
+            if (remoteData.brainDump !== undefined && typeof remoteData.brainDump === 'string') {
+              setBrainDump(remoteData.brainDump);
+              storageService.saveBrainDump(remoteData.brainDump);
+            }
+            if (remoteData.user) {
+              setProUserData(remoteData.user);
+              storageService.saveProUserData(remoteData.user);
+            }
+            if (remoteData.byokConfig?.apiKey && remoteData.byokConfig.isValidated) {
+              setByokConfig(remoteData.byokConfig);
+              storageService.saveBYOKConfig(remoteData.byokConfig);
+            }
+
+            localStorage.setItem('tasker_ai_tasks', JSON.stringify(normalizedTasks));
+            localStorage.setItem('tasker_ai_last_synced', remoteData.lastSynced);
+            localStorage.setItem('tasker_ai_google_last_sync_v1', remoteTime.toString());
+            console.log('[WebSync] 🔄 Ingested fresh remote changes from Android');
           }
-        });
+        }
+      } catch (err) {
+        console.warn('[WebSync] Auto-poll check failed:', err);
       }
-    }, 25000);
+    }, 10000); // Check every 10s
 
     return () => {
       unsubscribe();

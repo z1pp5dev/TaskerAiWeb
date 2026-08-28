@@ -70,6 +70,8 @@ export async function loadFromGoogleDrive(accessToken: string): Promise<AppDataB
   }
 }
 
+export const fetchFromGoogleDrive = loadFromGoogleDrive;
+
 // Save or Update backup in Google Drive appDataFolder
 export async function saveToGoogleDrive(accessToken: string, data: AppDataBackup): Promise<boolean> {
   const fileId = await getBackupFileId(accessToken);
