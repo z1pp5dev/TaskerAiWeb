@@ -142,7 +142,51 @@ export const App: React.FC = () => {
     setToasts((prev) => prev.filter((t) => t.id !== id));
   };
 
-  // Google Drive Cloud Sync Lifecycle
+  // Fetch latest changes from Google Drive if remote has newer data
+  const fetchLatestFromDrive = useCallback(async () => {
+    const token = googleDriveService.getAccessToken();
+    if (!token) return;
+    try {
+      const remoteData = await fetchFromGoogleDrive(token);
+      if (remoteData && remoteData.lastSynced) {
+        const localLastSynced = localStorage.getItem('tasker_ai_last_synced') || localStorage.getItem('tasker_ai_google_last_sync_v1') || '';
+        const remoteTime = new Date(remoteData.lastSynced).getTime();
+        const localTime = localLastSynced ? new Date(localLastSynced).getTime() : 0;
+
+        if (remoteTime > localTime) {
+          const normalizedTasks = normalizeRemoteTasks(remoteData.tasks || []).filter((t) => !t.isDeleted);
+          setTasks(normalizedTasks);
+          storageService.saveTasks(normalizedTasks);
+
+          if (Array.isArray(remoteData.categories)) {
+            setCategories(remoteData.categories);
+            storageService.saveCategories(remoteData.categories);
+          }
+          if (remoteData.brainDump !== undefined && typeof remoteData.brainDump === 'string') {
+            setBrainDump(remoteData.brainDump);
+            storageService.saveBrainDump(remoteData.brainDump);
+          }
+          if (remoteData.user) {
+            setProUserData(remoteData.user);
+            storageService.saveProUserData(remoteData.user);
+          }
+          if (remoteData.byokConfig?.apiKey && remoteData.byokConfig.isValidated) {
+            setByokConfig(remoteData.byokConfig);
+            storageService.saveBYOKConfig(remoteData.byokConfig);
+          }
+
+          localStorage.setItem('tasker_ai_tasks', JSON.stringify(normalizedTasks));
+          localStorage.setItem('tasker_ai_last_synced', remoteData.lastSynced);
+          localStorage.setItem('tasker_ai_google_last_sync_v1', remoteTime.toString());
+          console.log('[WebSync] 🔄 Ingested fresh remote changes from Drive on tab focus');
+        }
+      }
+    } catch (e) {
+      console.warn('[WebSync] Focus sync check failed:', e);
+    }
+  }, []);
+
+  // Google Drive Cloud Sync Lifecycle & Tab Focus Event Sync
   useEffect(() => {
     loadData();
 
@@ -181,109 +225,21 @@ export const App: React.FC = () => {
     });
 
     // Auto-pull fresh cloud changes when user returns to tab / focuses window
-    const handleFocusSync = async () => {
-      if (document.visibilityState === 'visible' && googleDriveService.getUser()) {
-        const token = googleDriveService.getAccessToken();
-        if (token) {
-          try {
-            const remoteData = await fetchFromGoogleDrive(token);
-            if (remoteData && remoteData.lastSynced) {
-              const localLastSynced = localStorage.getItem('tasker_ai_last_synced') || localStorage.getItem('tasker_ai_google_last_sync_v1') || '';
-              const remoteTime = new Date(remoteData.lastSynced).getTime();
-              const localTime = localLastSynced ? new Date(localLastSynced).getTime() : 0;
-
-              if (remoteTime > localTime) {
-                const normalizedTasks = normalizeRemoteTasks(remoteData.tasks || []).filter((t) => !t.isDeleted);
-                setTasks(normalizedTasks);
-                storageService.saveTasks(normalizedTasks);
-
-                if (Array.isArray(remoteData.categories)) {
-                  setCategories(remoteData.categories);
-                  storageService.saveCategories(remoteData.categories);
-                }
-                if (remoteData.brainDump !== undefined && typeof remoteData.brainDump === 'string') {
-                  setBrainDump(remoteData.brainDump);
-                  storageService.saveBrainDump(remoteData.brainDump);
-                }
-                if (remoteData.user) {
-                  setProUserData(remoteData.user);
-                  storageService.saveProUserData(remoteData.user);
-                }
-                if (remoteData.byokConfig?.apiKey && remoteData.byokConfig.isValidated) {
-                  setByokConfig(remoteData.byokConfig);
-                  storageService.saveBYOKConfig(remoteData.byokConfig);
-                }
-
-                localStorage.setItem('tasker_ai_tasks', JSON.stringify(normalizedTasks));
-                localStorage.setItem('tasker_ai_last_synced', remoteData.lastSynced);
-                localStorage.setItem('tasker_ai_google_last_sync_v1', remoteTime.toString());
-                console.log('[WebSync] 🔄 Ingested fresh remote changes on focus');
-              }
-            }
-          } catch (e) {
-            console.warn('[WebSync] Focus sync failed:', e);
-          }
-        }
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && googleDriveService.getAccessToken()) {
+        fetchLatestFromDrive();
       }
     };
 
-    window.addEventListener('visibilitychange', handleFocusSync);
-    window.addEventListener('focus', handleFocusSync);
-
-    // 10-Second Auto-Polling Loop to check Google Drive for Android changes
-    const interval = setInterval(async () => {
-      try {
-        const token = googleDriveService.getAccessToken();
-        if (!token || document.visibilityState !== 'visible') return;
-
-        const remoteData = await fetchFromGoogleDrive(token);
-        if (remoteData && remoteData.lastSynced) {
-          const localLastSynced = localStorage.getItem('tasker_ai_last_synced') || localStorage.getItem('tasker_ai_google_last_sync_v1') || '';
-          
-          // If remote is newer than local, update React state & localStorage
-          const remoteTime = new Date(remoteData.lastSynced).getTime();
-          const localTime = localLastSynced ? new Date(localLastSynced).getTime() : 0;
-
-          if (remoteTime > localTime) {
-            const normalizedTasks = normalizeRemoteTasks(remoteData.tasks || []).filter((t) => !t.isDeleted);
-            setTasks(normalizedTasks);
-            storageService.saveTasks(normalizedTasks);
-
-            if (Array.isArray(remoteData.categories)) {
-              setCategories(remoteData.categories);
-              storageService.saveCategories(remoteData.categories);
-            }
-            if (remoteData.brainDump !== undefined && typeof remoteData.brainDump === 'string') {
-              setBrainDump(remoteData.brainDump);
-              storageService.saveBrainDump(remoteData.brainDump);
-            }
-            if (remoteData.user) {
-              setProUserData(remoteData.user);
-              storageService.saveProUserData(remoteData.user);
-            }
-            if (remoteData.byokConfig?.apiKey && remoteData.byokConfig.isValidated) {
-              setByokConfig(remoteData.byokConfig);
-              storageService.saveBYOKConfig(remoteData.byokConfig);
-            }
-
-            localStorage.setItem('tasker_ai_tasks', JSON.stringify(normalizedTasks));
-            localStorage.setItem('tasker_ai_last_synced', remoteData.lastSynced);
-            localStorage.setItem('tasker_ai_google_last_sync_v1', remoteTime.toString());
-            console.log('[WebSync] 🔄 Ingested fresh remote changes from Android');
-          }
-        }
-      } catch (err) {
-        console.warn('[WebSync] Auto-poll check failed:', err);
-      }
-    }, 10000); // Check every 10s
+    window.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('focus', handleVisibilityChange);
 
     return () => {
       unsubscribe();
-      window.removeEventListener('visibilitychange', handleFocusSync);
-      window.removeEventListener('focus', handleFocusSync);
-      clearInterval(interval);
+      window.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('focus', handleVisibilityChange);
     };
-  }, [loadData, showToast]);
+  }, [loadData, showToast, fetchLatestFromDrive]);
 
   const handleSyncNow = async () => {
     setIsSyncing(true);
