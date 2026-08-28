@@ -707,7 +707,7 @@ export const App: React.FC = () => {
       </header>
 
       {/* Main Container */}
-      <main className="flex-1 max-w-3xl w-full mx-auto flex flex-col gap-3 pb-16">
+      <main className="flex-1 max-w-3xl w-full mx-auto flex flex-col gap-3 pb-24">
         {currentScreen === 'DASHBOARD' ? (
           <>
             {/* Focus Summary & Smart Add & Search */}

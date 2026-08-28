@@ -157,7 +157,7 @@ export const TaskManager: React.FC<TaskManagerProps> = ({
   }
 
   return (
-    <div className="flex-1 flex flex-col gap-2.5 px-4 pb-28">
+    <div className="flex-1 flex flex-col gap-2.5 px-4 pb-36">
       {tasks.map((task, index) => (
         <div
           key={task.id}

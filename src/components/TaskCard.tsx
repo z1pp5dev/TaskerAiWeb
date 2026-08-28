@@ -36,7 +36,15 @@ export const TaskCard: React.FC<TaskCardProps> = ({
   dragHandleProps
 }) => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [openUpward, setOpenUpward] = useState(false);
   const [isSubtasksExpanded, setIsSubtasksExpanded] = useState(false);
+
+  const handleToggleMenu = (e: React.MouseEvent<HTMLButtonElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const spaceBelow = window.innerHeight - rect.bottom;
+    setOpenUpward(spaceBelow < 160);
+    setIsMenuOpen((prev) => !prev);
+  };
 
   const priorityMeta = PRIORITY_CONFIG[task.priority] || PRIORITY_CONFIG.MEDIUM;
   const hasLeftAccentBar = !task.isCompleted && (task.priority === 'HIGH' || task.priority === 'URGENT');
@@ -73,7 +81,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({
 
   return (
     <div
-      className={`group relative flex overflow-hidden rounded-2xl border transition-all duration-200 ${
+      className={`group relative flex rounded-2xl border transition-all duration-200 ${
         isDragging
           ? 'scale-[1.02] shadow-2xl border-purple-500 bg-slate-900 ring-2 ring-purple-500/50'
           : task.isCompleted
@@ -84,7 +92,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({
       {/* Left accent color bar for High & Urgent priority tasks */}
       {hasLeftAccentBar && (
         <div
-          className="w-1.5 shrink-0"
+          className="w-1.5 shrink-0 rounded-l-2xl"
           style={{ backgroundColor: priorityMeta.accentBarColor }}
         />
       )}
@@ -140,7 +148,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({
           {/* More Actions Menu */}
           <div className="relative shrink-0">
             <button
-              onClick={() => setIsMenuOpen(!isMenuOpen)}
+              onClick={handleToggleMenu}
               className="p-1 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-slate-200 transition-colors"
               aria-label="Task options"
             >
@@ -150,10 +158,14 @@ export const TaskCard: React.FC<TaskCardProps> = ({
             {isMenuOpen && (
               <>
                 <div
-                  className="fixed inset-0 z-20"
+                  className="fixed inset-0 z-40"
                   onClick={() => setIsMenuOpen(false)}
                 />
-                <div className="absolute right-0 mt-1 w-36 rounded-xl border border-slate-700 bg-slate-900/95 backdrop-blur-md p-1 shadow-2xl z-30 animate-scale-in">
+                <div
+                  className={`absolute right-0 w-36 rounded-xl border border-slate-700 bg-slate-900/95 backdrop-blur-md p-1 shadow-2xl z-50 animate-scale-in ${
+                    openUpward ? 'bottom-full mb-1.5' : 'top-full mt-1.5'
+                  }`}
+                >
                   <button
                     onClick={() => {
                       setIsMenuOpen(false);
@@ -172,7 +184,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({
                     className="flex w-full items-center gap-2 px-3 py-2 text-xs font-medium text-rose-400 hover:bg-rose-950/40 rounded-lg transition-colors"
                   >
                     <Trash2 className="w-3.5 h-3.5" />
-                    Delete
+                    Delete Task
                   </button>
                 </div>
               </>

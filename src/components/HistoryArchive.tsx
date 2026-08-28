@@ -77,7 +77,7 @@ export const HistoryArchive: React.FC<HistoryArchiveProps> = ({
           </button>
         </div>
       ) : (
-        <div className="flex flex-col gap-2.5 pb-24">
+        <div className="flex flex-col gap-2.5 pb-36">
           <span className="text-xs font-bold uppercase tracking-wider text-slate-400">
             Completed Tasks ({completedTasks.length})
           </span>
