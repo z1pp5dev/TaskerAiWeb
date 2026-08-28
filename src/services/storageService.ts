@@ -709,39 +709,34 @@ class StorageService {
       const mergedCategories = Array.from(categoryMap.values());
       localStorage.setItem(STORAGE_KEYS.CATEGORIES, JSON.stringify(mergedCategories));
 
-      // Merge Tasks with Tombstone & LWW conflict resolution
-      const taskMap = new Map<string, TaskItem>();
-      normalizedDriveTasks.forEach((driveTask) => {
-        taskMap.set(driveTask.id, driveTask);
-      });
+      // Merge Tasks with Authoritative Remote Overwrite for deletions
+      const remoteLastSynced = driveData.lastSynced ? new Date(driveData.lastSynced).getTime() : 0;
+      const localLastSyncedRaw = localStorage.getItem(STORAGE_KEYS.LAST_SYNC) || localStorage.getItem('tasker_ai_last_synced') || '0';
+      const localLastSynced = !isNaN(Number(localLastSyncedRaw)) ? Number(localLastSyncedRaw) : new Date(localLastSyncedRaw).getTime() || 0;
 
-      localTasks.forEach((localTask) => {
-        if (!taskMap.has(localTask.id)) {
-          taskMap.set(localTask.id, localTask);
-        } else {
-          const driveTask = taskMap.get(localTask.id)!;
-          const localUpdated = localTask.updatedAt || localTask.createdAt || 0;
-          const driveUpdated = driveTask.updatedAt || driveTask.createdAt || 0;
-
-          // Conflict resolution for soft-deletes:
-          if (localTask.isDeleted && !driveTask.isDeleted) {
-            if (localUpdated >= driveUpdated) {
-              taskMap.set(localTask.id, { ...localTask, isDeleted: true });
-            }
-          } else if (driveTask.isDeleted && !localTask.isDeleted) {
-            if (driveUpdated >= localUpdated) {
-              taskMap.set(localTask.id, { ...driveTask, isDeleted: true });
-            } else {
-              taskMap.set(localTask.id, localTask);
-            }
-          } else if (localUpdated >= driveUpdated) {
+      let mergedTasks: TaskItem[];
+      if (remoteLastSynced >= localLastSynced || isLocalOnlySampleTasks) {
+        // Authoritative remote overwrite to prune deleted tasks
+        mergedTasks = normalizedDriveTasks.filter((t) => !t.isDeleted);
+      } else {
+        const taskMap = new Map<string, TaskItem>();
+        normalizedDriveTasks.forEach((driveTask) => {
+          if (!driveTask.isDeleted) taskMap.set(driveTask.id, driveTask);
+        });
+        localTasks.forEach((localTask) => {
+          if (!localTask.isDeleted && !taskMap.has(localTask.id)) {
             taskMap.set(localTask.id, localTask);
           }
-        }
-      });
+        });
+        mergedTasks = Array.from(taskMap.values()).sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0));
+      }
 
-      const mergedTasks = Array.from(taskMap.values()).sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0));
       localStorage.setItem(STORAGE_KEYS.TASKS, JSON.stringify(mergedTasks));
+      localStorage.setItem('tasker_ai_tasks', JSON.stringify(mergedTasks));
+      if (driveData.lastSynced) {
+        localStorage.setItem('tasker_ai_last_synced', driveData.lastSynced);
+        localStorage.setItem(STORAGE_KEYS.LAST_SYNC, remoteLastSynced.toString());
+      }
 
       // 7. Upload merged snapshot to Google Drive
       const saveRes = await googleDriveService.saveToDrive(mergedTasks, mergedCategories, mergedBrainDump, mergedBYOK, mergedPro);

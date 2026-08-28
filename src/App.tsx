@@ -148,15 +148,17 @@ export const App: React.FC = () => {
     if (!token) return;
     try {
       const remoteData = await fetchFromGoogleDrive(token);
-      if (remoteData && remoteData.lastSynced) {
+      if (remoteData && remoteData.tasks) {
         const localLastSynced = localStorage.getItem('tasker_ai_last_synced') || localStorage.getItem('tasker_ai_google_last_sync_v1') || '';
-        const remoteTime = new Date(remoteData.lastSynced).getTime();
+        const remoteTime = remoteData.lastSynced ? new Date(remoteData.lastSynced).getTime() : Date.now();
         const localTime = localLastSynced ? new Date(localLastSynced).getTime() : 0;
 
-        if (remoteTime > localTime) {
+        if (remoteTime >= localTime || !localLastSynced) {
           const normalizedTasks = normalizeRemoteTasks(remoteData.tasks || []).filter((t) => !t.isDeleted);
+          // Overwrite local tasks array with the authoritative remote tasks array
           setTasks(normalizedTasks);
           storageService.saveTasks(normalizedTasks);
+          localStorage.setItem('tasker_ai_tasks', JSON.stringify(normalizedTasks));
 
           if (Array.isArray(remoteData.categories)) {
             setCategories(remoteData.categories);
@@ -175,10 +177,11 @@ export const App: React.FC = () => {
             storageService.saveBYOKConfig(remoteData.byokConfig);
           }
 
-          localStorage.setItem('tasker_ai_tasks', JSON.stringify(normalizedTasks));
-          localStorage.setItem('tasker_ai_last_synced', remoteData.lastSynced);
-          localStorage.setItem('tasker_ai_google_last_sync_v1', remoteTime.toString());
-          console.log('[WebSync] 🔄 Ingested fresh remote changes from Drive on tab focus');
+          if (remoteData.lastSynced) {
+            localStorage.setItem('tasker_ai_last_synced', remoteData.lastSynced);
+            localStorage.setItem('tasker_ai_google_last_sync_v1', remoteTime.toString());
+          }
+          console.log(`[WebSync] Synchronized tasks list (${normalizedTasks.length} active tasks)`);
         }
       }
     } catch (e) {

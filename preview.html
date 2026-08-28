@@ -1061,40 +1061,35 @@ Extract structured tasks from user's raw Brain Dump notes. Return ONLY a JSON ar
           if (!driveData) return;
           if (driveData.user) {
             storageService.saveProUserData(driveData.user);
+            setProUserData(driveData.user);
           }
-          if (typeof driveData.brainDump === 'string' && driveData.brainDump) {
+          if (typeof driveData.brainDump === 'string') {
             storageService.saveBrainDump(driveData.brainDump);
+            setBrainDump(driveData.brainDump);
           }
           if (driveData.byokConfig?.apiKey && driveData.byokConfig.isValidated) {
             storageService.saveBYOKConfig(driveData.byokConfig);
+            setByokConfig(driveData.byokConfig);
           }
-          if (Array.isArray(driveData.tasks) && driveData.tasks.length > 0) {
-            const localTasks = storageService.getAllTasks();
-            const taskMap = new Map();
-            driveData.tasks.forEach((t, idx) => {
-              taskMap.set(String(t.id), {
+          if (Array.isArray(driveData.tasks)) {
+            const mappedTasks = driveData.tasks
+              .filter(t => !t.isDeleted)
+              .map((t, idx) => ({
                 ...t,
                 id: String(t.id),
                 isCompleted: Boolean(t.isCompleted),
-                isDeleted: Boolean(t.isDeleted),
+                isDeleted: false,
                 sortOrder: typeof t.sortOrder === 'number' ? t.sortOrder : idx,
                 priority: (t.priority === 'High' || t.priority === 'HIGH') ? 'HIGH' : (t.priority === 'Low' || t.priority === 'LOW') ? 'LOW' : 'MEDIUM'
-              });
-            });
-            localTasks.forEach(lt => {
-              if (!taskMap.has(lt.id)) {
-                taskMap.set(lt.id, lt);
-              } else {
-                const dt = taskMap.get(lt.id);
-                if (lt.isDeleted && !dt.isDeleted) {
-                  taskMap.set(lt.id, { ...lt, isDeleted: true });
-                }
-              }
-            });
-            localStorage.setItem(STORAGE_KEYS.TASKS, JSON.stringify(Array.from(taskMap.values())));
+              }));
+            // Overwrite local tasks array with the authoritative remote tasks array
+            storageService.saveTasks(mappedTasks);
+            localStorage.setItem('tasker_ai_tasks', JSON.stringify(mappedTasks));
+            setTasks(mappedTasks);
           }
           if (Array.isArray(driveData.categories) && driveData.categories.length > 0) {
             storageService.saveCategories(driveData.categories);
+            setCategories(driveData.categories);
           }
           loadData();
         };
@@ -1108,16 +1103,18 @@ Extract structured tasks from user's raw Brain Dump notes. Return ONLY a JSON ar
         const handleFocusSync = () => {
           if (document.visibilityState === 'visible' && googleDriveService.getUser()) {
             googleDriveService.loadFromDrive().then(driveData => {
-              if (driveData && driveData.lastSynced) {
+              if (driveData && driveData.tasks) {
                 const localLastSynced = localStorage.getItem('tasker_ai_last_synced') || localStorage.getItem('tasker_ai_google_last_sync_v1') || '';
-                const remoteTime = new Date(driveData.lastSynced).getTime();
+                const remoteTime = driveData.lastSynced ? new Date(driveData.lastSynced).getTime() : Date.now();
                 const localTime = localLastSynced ? new Date(localLastSynced).getTime() : 0;
 
-                if (remoteTime > localTime) {
+                if (remoteTime >= localTime || !localLastSynced) {
                   mergeDriveData(driveData);
-                  localStorage.setItem('tasker_ai_last_synced', driveData.lastSynced);
-                  localStorage.setItem('tasker_ai_google_last_sync_v1', remoteTime.toString());
-                  console.log('[WebSync] 🔄 Ingested fresh remote changes on tab focus');
+                  if (driveData.lastSynced) {
+                    localStorage.setItem('tasker_ai_last_synced', driveData.lastSynced);
+                    localStorage.setItem('tasker_ai_google_last_sync_v1', remoteTime.toString());
+                  }
+                  console.log(`[WebSync] Synchronized tasks list (${driveData.tasks.length} active tasks)`);
                 }
               }
             });
