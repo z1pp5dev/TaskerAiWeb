@@ -310,15 +310,9 @@ export const App: React.FC = () => {
   };
 
   const handleRestoreTask = (taskId: string) => {
-    const task = tasks.find((t) => t.id === taskId);
-    if (task) {
-      storageService.updateTask({
-        ...task,
-        isCompleted: false
-      });
-      loadData();
-      showToast(`Restored: "${task.title}"`, 'success');
-    }
+    storageService.restoreTask(taskId);
+    loadData();
+    showToast('Task restored to active dashboard!', 'success');
   };
 
   const handleClearCompleted = () => {

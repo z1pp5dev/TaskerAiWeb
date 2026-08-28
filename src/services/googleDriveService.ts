@@ -371,13 +371,14 @@ export class GoogleDriveService {
       description: t.description || '',
       dueDate: t.dueDate ?? null,
       isCompleted: Boolean(t.isCompleted),
+      isDeleted: Boolean(t.isDeleted),
       priority: (t.priority === 'HIGH' || t.priority === 'URGENT' ? 'High' : t.priority === 'LOW' ? 'Low' : 'Medium') as "High" | "Medium" | "Low",
       isRecurring: Boolean(t.isRecurring),
       recurrenceInterval: t.recurrenceInterval || 'NONE',
       hasAlarm: Boolean(t.hasAlarm),
       sortOrder: t.sortOrder,
       createdAt: typeof t.createdAt === 'number' ? new Date(t.createdAt).toISOString() : String(t.createdAt || new Date().toISOString()),
-      updatedAt: new Date().toISOString(),
+      updatedAt: typeof t.updatedAt === 'number' ? new Date(t.updatedAt).toISOString() : new Date().toISOString(),
       subtasks: t.subtasks || []
     }));
 

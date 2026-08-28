@@ -29,11 +29,14 @@ export interface TaskItem {
   priority: Priority;
   categoryId: string | null;
   isCompleted: boolean;
+  isDeleted?: boolean; // Tombstone flag for sync deletion tracking
+  deletedAt?: number;
   isRecurring: boolean;
   recurrenceInterval: RecurrenceInterval;
   hasAlarm: boolean;
   sortOrder: number;
   createdAt: number;
+  updatedAt?: number;
   subtasks: SubTask[];
 }
 

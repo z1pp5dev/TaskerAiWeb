@@ -16,6 +16,7 @@ export interface SyncTaskItem {
   categoryId: string;
   title: string;
   isCompleted: boolean;
+  isDeleted?: boolean; // Tombstone flag
   priority: string;
   createdAt: string;
   updatedAt: string;

@@ -156,6 +156,7 @@
         priority: 'HIGH',
         categoryId: 'cat_work',
         isCompleted: false,
+        isDeleted: false,
         isRecurring: false,
         recurrenceInterval: 'NONE',
         hasAlarm: false,
@@ -175,6 +176,7 @@
         priority: 'MEDIUM',
         categoryId: 'cat_health',
         isCompleted: false,
+        isDeleted: false,
         isRecurring: true,
         recurrenceInterval: 'DAILY',
         hasAlarm: true,
@@ -193,6 +195,7 @@
         priority: 'LOW',
         categoryId: 'cat_personal',
         isCompleted: false,
+        isDeleted: false,
         isRecurring: true,
         recurrenceInterval: 'WEEKLY',
         hasAlarm: false,
@@ -273,7 +276,7 @@
         const tasks = this.getTasks().map(t => t.categoryId === id ? { ...t, categoryId: null } : t);
         this.saveTasks(tasks);
       },
-      getTasks() {
+      getTasks(includeDeleted = false) {
         try {
           const raw = localStorage.getItem(STORAGE_KEYS.TASKS);
           if (!raw) {
@@ -282,7 +285,7 @@
           }
           const parsed = JSON.parse(raw);
           if (!Array.isArray(parsed)) return DEFAULT_TASKS;
-          return parsed.map(t => ({
+          const mapped = parsed.map(t => ({
             ...t,
             id: t.id || 'task_' + Math.random().toString(36).substring(2, 7),
             title: t.title || 'Untitled Task',
@@ -290,98 +293,132 @@
             priority: t.priority || 'MEDIUM',
             subtasks: Array.isArray(t.subtasks) ? t.subtasks : [],
             isCompleted: Boolean(t.isCompleted),
+            isDeleted: Boolean(t.isDeleted),
             isRecurring: Boolean(t.isRecurring),
             recurrenceInterval: t.recurrenceInterval || 'NONE'
           }));
+          return includeDeleted ? mapped : mapped.filter(t => !t.isDeleted);
         } catch (e) {
           return DEFAULT_TASKS;
         }
       },
-      saveTasks(tasks) {
-        localStorage.setItem(STORAGE_KEYS.TASKS, JSON.stringify(tasks));
+      getAllTasks() {
+        return this.getTasks(true);
+      },
+      saveTasks(tasks, preserveTombstones = true) {
+        let finalTasks = tasks;
+        if (preserveTombstones) {
+          const allExisting = this.getAllTasks();
+          const incomingIds = new Set(tasks.map(t => t.id));
+          const tombstonesToKeep = allExisting.filter(t => t.isDeleted && !incomingIds.has(t.id));
+          finalTasks = [...tasks, ...tombstonesToKeep];
+        }
+        localStorage.setItem(STORAGE_KEYS.TASKS, JSON.stringify(finalTasks));
       },
       addTask(taskData) {
-        const tasks = this.getTasks();
+        const tasks = this.getTasks(false);
+        const now = Date.now();
         const newTask = {
           ...taskData,
-          id: 'task_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
-          createdAt: Date.now(),
+          id: 'task_' + now + '_' + Math.random().toString(36).substring(2, 6),
+          createdAt: now,
+          updatedAt: now,
+          isDeleted: false,
           sortOrder: 0,
           subtasks: taskData.subtasks || []
         };
         tasks.unshift(newTask);
-        this.saveTasks(tasks);
+        this.saveTasks(tasks, true);
         return newTask;
       },
       updateTask(task) {
-        const tasks = this.getTasks();
-        const idx = tasks.findIndex(t => t.id === task.id);
+        const allTasks = this.getAllTasks();
+        const idx = allTasks.findIndex(t => t.id === task.id);
+        const now = Date.now();
+        const taskWithTs = { ...task, updatedAt: now };
         if (idx !== -1) {
-          tasks[idx] = task;
-          this.saveTasks(tasks);
+          allTasks[idx] = taskWithTs;
+        } else {
+          allTasks.push(taskWithTs);
         }
+        localStorage.setItem(STORAGE_KEYS.TASKS, JSON.stringify(allTasks));
       },
       deleteTask(id) {
-        const tasks = this.getTasks().filter(t => t.id !== id);
-        this.saveTasks(tasks);
+        const allTasks = this.getAllTasks();
+        const now = Date.now();
+        const updated = allTasks.map(t => t.id === id ? { ...t, isDeleted: true, deletedAt: now, updatedAt: now } : t);
+        localStorage.setItem(STORAGE_KEYS.TASKS, JSON.stringify(updated));
+      },
+      restoreTask(id) {
+        const allTasks = this.getAllTasks();
+        const now = Date.now();
+        const updated = allTasks.map(t => t.id === id ? { ...t, isCompleted: false, isDeleted: false, deletedAt: undefined, updatedAt: now } : t);
+        localStorage.setItem(STORAGE_KEYS.TASKS, JSON.stringify(updated));
       },
       toggleTask(id) {
-        const tasks = this.getTasks();
-        const idx = tasks.findIndex(t => t.id === id);
+        const allTasks = this.getAllTasks();
+        const idx = allTasks.findIndex(t => t.id === id);
         if (idx === -1) return {};
-        const current = tasks[idx];
+        const current = allTasks[idx];
         const isDone = !current.isCompleted;
+        const now = Date.now();
         const updated = {
           ...current,
           isCompleted: isDone,
+          updatedAt: now,
           subtasks: isDone ? current.subtasks.map(s => ({ ...s, isCompleted: true })) : current.subtasks
         };
-        tasks[idx] = updated;
+        allTasks[idx] = updated;
 
         let nextTask;
         if (isDone && current.isRecurring && current.recurrenceInterval !== 'NONE') {
           const nextDue = this.calcNextDue(current.dueDate, current.recurrenceInterval);
           nextTask = {
             ...current,
-            id: 'task_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
+            id: 'task_' + now + '_' + Math.random().toString(36).substring(2, 6),
             isCompleted: false,
+            isDeleted: false,
             dueDate: nextDue,
-            createdAt: Date.now(),
+            createdAt: now,
+            updatedAt: now,
             sortOrder: 0,
             subtasks: current.subtasks.map(s => ({ ...s, isCompleted: false }))
           };
-          tasks.unshift(nextTask);
+          allTasks.unshift(nextTask);
         }
-        this.saveTasks(tasks);
+        localStorage.setItem(STORAGE_KEYS.TASKS, JSON.stringify(allTasks));
         return { updated, nextTask };
       },
       toggleSubtask(taskId, subtaskId) {
-        const tasks = this.getTasks();
-        const idx = tasks.findIndex(t => t.id === taskId);
+        const allTasks = this.getAllTasks();
+        const idx = allTasks.findIndex(t => t.id === taskId);
         if (idx === -1) return;
-        const task = tasks[idx];
+        const task = allTasks[idx];
         const subtasks = task.subtasks.map(s => s.id === subtaskId ? { ...s, isCompleted: !s.isCompleted } : s);
         const allDone = subtasks.length > 0 && subtasks.every(s => s.isCompleted);
         const wasCompleted = task.isCompleted;
         const isNowCompleted = allDone ? true : task.isCompleted;
+        const now = Date.now();
 
-        tasks[idx] = { ...task, subtasks, isCompleted: isNowCompleted };
+        allTasks[idx] = { ...task, subtasks, isCompleted: isNowCompleted, updatedAt: now };
 
         if (!wasCompleted && isNowCompleted && task.isRecurring && task.recurrenceInterval !== 'NONE') {
           const nextDue = this.calcNextDue(task.dueDate, task.recurrenceInterval);
           const nextTask = {
             ...task,
-            id: 'task_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
+            id: 'task_' + now + '_' + Math.random().toString(36).substring(2, 6),
             isCompleted: false,
+            isDeleted: false,
             dueDate: nextDue,
-            createdAt: Date.now(),
+            createdAt: now,
+            updatedAt: now,
             sortOrder: 0,
             subtasks: task.subtasks.map(s => ({ ...s, isCompleted: false }))
           };
-          tasks.unshift(nextTask);
+          allTasks.unshift(nextTask);
         }
 
-        this.saveTasks(tasks);
+        localStorage.setItem(STORAGE_KEYS.TASKS, JSON.stringify(allTasks));
       },
       calcNextDue(currentMs, interval) {
         const base = currentMs ? new Date(currentMs) : new Date();
@@ -393,8 +430,10 @@
         return next.getTime();
       },
       clearCompleted() {
-        const active = this.getTasks().filter(t => !t.isCompleted);
-        this.saveTasks(active);
+        const allTasks = this.getAllTasks();
+        const now = Date.now();
+        const updated = allTasks.map(t => (t.isCompleted && !t.isDeleted) ? { ...t, isDeleted: true, deletedAt: now, updatedAt: now } : t);
+        localStorage.setItem(STORAGE_KEYS.TASKS, JSON.stringify(updated));
       },
       getBYOKConfig() {
         try {
@@ -944,9 +983,10 @@ Extract structured tasks from user's raw Brain Dump notes. Return ONLY a JSON ar
             categoryId: t.categoryId ? String(t.categoryId) : '',
             title: t.title,
             isCompleted: Boolean(t.isCompleted),
+            isDeleted: Boolean(t.isDeleted),
             priority: (t.priority === 'HIGH' || t.priority === 'URGENT' ? 'High' : t.priority === 'LOW' ? 'Low' : 'Medium'),
             createdAt: typeof t.createdAt === 'number' ? new Date(t.createdAt).toISOString() : String(t.createdAt || new Date().toISOString()),
-            updatedAt: new Date().toISOString()
+            updatedAt: typeof t.updatedAt === 'number' ? new Date(t.updatedAt).toISOString() : new Date().toISOString()
           }));
           const formattedCategories = categories.map(c => ({
             id: String(c.id),
@@ -1032,54 +1072,57 @@ Extract structured tasks from user's raw Brain Dump notes. Return ONLY a JSON ar
       useEffect(() => {
         loadData();
 
-        // Check Google Drive user session
+        const mergeDriveData = (driveData) => {
+          if (!driveData) return;
+          if (driveData.user) {
+            storageService.saveProUserData(driveData.user);
+          }
+          if (typeof driveData.brainDump === 'string' && driveData.brainDump) {
+            storageService.saveBrainDump(driveData.brainDump);
+          }
+          if (driveData.byokConfig?.apiKey && driveData.byokConfig.isValidated) {
+            storageService.saveBYOKConfig(driveData.byokConfig);
+          }
+          if (Array.isArray(driveData.tasks) && driveData.tasks.length > 0) {
+            const localTasks = storageService.getAllTasks();
+            const taskMap = new Map();
+            driveData.tasks.forEach((t, idx) => {
+              taskMap.set(String(t.id), {
+                ...t,
+                id: String(t.id),
+                isCompleted: Boolean(t.isCompleted),
+                isDeleted: Boolean(t.isDeleted),
+                sortOrder: typeof t.sortOrder === 'number' ? t.sortOrder : idx,
+                priority: (t.priority === 'High' || t.priority === 'HIGH') ? 'HIGH' : (t.priority === 'Low' || t.priority === 'LOW') ? 'LOW' : 'MEDIUM'
+              });
+            });
+            localTasks.forEach(lt => {
+              if (!taskMap.has(lt.id)) {
+                taskMap.set(lt.id, lt);
+              } else {
+                const dt = taskMap.get(lt.id);
+                if (lt.isDeleted && !dt.isDeleted) {
+                  taskMap.set(lt.id, { ...lt, isDeleted: true });
+                }
+              }
+            });
+            localStorage.setItem(STORAGE_KEYS.TASKS, JSON.stringify(Array.from(taskMap.values())));
+          }
+          if (Array.isArray(driveData.categories) && driveData.categories.length > 0) {
+            storageService.saveCategories(driveData.categories);
+          }
+          loadData();
+        };
+
         const driveUser = googleDriveService.getUser();
         if (driveUser) {
           setUser(driveUser);
-          googleDriveService.loadFromDrive().then(driveData => {
-            if (driveData) {
-              if (driveData.user) {
-                storageService.saveProUserData(driveData.user);
-              }
-              if (typeof driveData.brainDump === 'string' && driveData.brainDump) {
-                storageService.saveBrainDump(driveData.brainDump);
-              }
-              if (driveData.byokConfig?.apiKey && driveData.byokConfig.isValidated) {
-                storageService.saveBYOKConfig(driveData.byokConfig);
-              }
-              if (Array.isArray(driveData.tasks) && driveData.tasks.length > 0) {
-                storageService.saveTasks(driveData.tasks);
-              }
-              if (Array.isArray(driveData.categories) && driveData.categories.length > 0) {
-                storageService.saveCategories(driveData.categories);
-              }
-              loadData();
-            }
-          });
+          googleDriveService.loadFromDrive().then(mergeDriveData);
         }
 
         const handleFocusSync = () => {
           if (document.visibilityState === 'visible' && googleDriveService.getUser()) {
-            googleDriveService.loadFromDrive().then(driveData => {
-              if (driveData) {
-                if (driveData.user) {
-                  storageService.saveProUserData(driveData.user);
-                }
-                if (typeof driveData.brainDump === 'string' && driveData.brainDump) {
-                  storageService.saveBrainDump(driveData.brainDump);
-                }
-                if (driveData.byokConfig?.apiKey && driveData.byokConfig.isValidated) {
-                  storageService.saveBYOKConfig(driveData.byokConfig);
-                }
-                if (Array.isArray(driveData.tasks) && driveData.tasks.length > 0) {
-                  storageService.saveTasks(driveData.tasks);
-                }
-                if (Array.isArray(driveData.categories) && driveData.categories.length > 0) {
-                  storageService.saveCategories(driveData.categories);
-                }
-                loadData();
-              }
-            });
+            googleDriveService.loadFromDrive().then(mergeDriveData);
           }
         };
 
@@ -1665,7 +1708,7 @@ Extract structured tasks from user's raw Brain Dump notes. Return ONLY a JSON ar
                       </div>
                       <div className="flex gap-1.5">
                         <button
-                          onClick={() => { storageService.updateTask({ ...task, isCompleted: false }); loadData(); showToast('Restored task'); }}
+                          onClick={() => { storageService.restoreTask(task.id); loadData(); showToast('Restored task'); }}
                           className="px-2 py-1 bg-slate-800 text-slate-300 text-xs rounded-lg"
                           title="Restore task"
                         >
