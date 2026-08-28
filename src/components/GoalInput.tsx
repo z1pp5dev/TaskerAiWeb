@@ -21,6 +21,7 @@ interface GoalInputProps {
   onSearchChange: (query: string) => void;
   onSmartAdd: (input: string) => Promise<void>;
   onOpenAiBreakdown: () => void;
+  onOpenBrainDump?: () => void;
   tier: UserTier;
   demoAiUsesCount: number;
   onOpenUpgradeModal: () => void;
@@ -35,6 +36,7 @@ export const GoalInput: React.FC<GoalInputProps> = ({
   onSearchChange,
   onSmartAdd,
   onOpenAiBreakdown,
+  onOpenBrainDump,
   tier,
   demoAiUsesCount,
   onOpenUpgradeModal,
@@ -252,8 +254,22 @@ export const GoalInput: React.FC<GoalInputProps> = ({
           )}
         </div>
 
+        {/* Brain Dump Scratchpad Trigger */}
+        {onOpenBrainDump && (
+          <button
+            type="button"
+            onClick={onOpenBrainDump}
+            className="flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-750 border border-slate-700/80 hover:border-purple-500/50 text-purple-300 text-xs font-bold transition-all active:scale-95 shadow-sm shrink-0"
+            title="Open Brain Dump Scratchpad"
+          >
+            <Sparkles className="w-4 h-4 text-purple-400" />
+            <span className="hidden sm:inline">Brain Dump</span>
+          </button>
+        )}
+
         {/* AI Goal Breakdown Trigger */}
         <button
+          type="button"
           onClick={onOpenAiBreakdown}
           className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white text-xs font-bold transition-all active:scale-95 shadow-md shadow-purple-600/25 shrink-0"
         >

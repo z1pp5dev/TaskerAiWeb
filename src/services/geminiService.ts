@@ -464,5 +464,155 @@ Return ONLY a valid JSON array of objects with this schema:
         ]
       }
     ];
+  },
+
+  /**
+   * Parse a raw, unstructured Brain Dump into a set of actionable structured tasks
+   */
+  async parseBrainDumpToTasks(
+    brainDumpText: string,
+    config: BYOKConfig,
+    categories?: Array<{ id: string; name: string }>
+  ): Promise<GoalBreakdownItem[]> {
+    if (!brainDumpText.trim()) return [];
+
+    const categoryList = categories && categories.length > 0
+      ? categories.map((c) => `"${c.name}"`).join(', ')
+      : '"Work", "Personal", "Health"';
+
+    const systemPrompt = `You are an AI task extraction assistant for Tasker AI.
+Given a raw, unorganized "Brain Dump" containing rough notes, thoughts, stream-of-consciousness, or ideas, decompose and transform it into clean, actionable, high-impact tasks.
+
+Available User Categories: ${categoryList}.
+Reference Today: ${new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}.
+
+Return ONLY a valid JSON array of structured task objects matching this exact schema:
+[
+  {
+    "title": "Concise, imperative task title (e.g., Pay electricity bill)",
+    "description": "Any relevant extracted context or details from the dump",
+    "dueDateOffsetDays": 1,
+    "priority": "LOW" | "MEDIUM" | "HIGH" | "URGENT",
+    "isRecurring": false,
+    "recurrenceInterval": "NONE" | "DAILY" | "WEEKLY" | "MONTHLY" | "YEARLY",
+    "subtasks": ["Subtask 1", "Subtask 2"]
+  }
+]`;
+
+    if (config.apiKey && config.isValidated) {
+      const cleanModel = (config.model && config.model.includes('3.6')) ? config.model : 'gemini-3.6-flash';
+      const candidateModels = [
+        cleanModel,
+        'gemini-3.6-flash',
+        'gemini-3.6-pro',
+        'gemini-3.6-flash-lite',
+        'gemini-3.6-flash-8b'
+      ].filter((m, idx, arr) => m && arr.indexOf(m) === idx);
+
+      for (const modelToTry of candidateModels) {
+        try {
+          const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${modelToTry}:generateContent?key=${config.apiKey.trim()}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              contents: [{
+                parts: [{
+                  text: `${systemPrompt}\n\nBrain Dump to extract tasks from:\n"""\n${brainDumpText}\n"""`
+                }]
+              }],
+              generationConfig: {
+                temperature: 0.2,
+                topP: 0.95
+              }
+            })
+          });
+
+          if (res.ok) {
+            const data = await res.json();
+            const textPart = data.candidates?.[0]?.content?.parts?.[0]?.text;
+            if (textPart) {
+              const sanitized = sanitizeJsonResponse(textPart);
+              const parsed = JSON.parse(sanitized);
+              if (Array.isArray(parsed) && parsed.length > 0) {
+                const now = Date.now();
+                const dayMs = 24 * 60 * 60 * 1000;
+                return parsed.map((item: any) => {
+                  let prio: Priority = 'MEDIUM';
+                  if (item.priority && ['LOW', 'MEDIUM', 'HIGH', 'URGENT'].includes(item.priority.toUpperCase())) {
+                    prio = item.priority.toUpperCase() as Priority;
+                  }
+
+                  let recInterval: RecurrenceInterval = 'NONE';
+                  if (item.recurrenceInterval && ['NONE', 'DAILY', 'WEEKLY', 'MONTHLY', 'YEARLY'].includes(item.recurrenceInterval.toUpperCase())) {
+                    recInterval = item.recurrenceInterval.toUpperCase() as RecurrenceInterval;
+                  }
+
+                  let due: number | null = null;
+                  if (typeof item.dueDateOffsetDays === 'number') {
+                    due = now + Math.max(0, item.dueDateOffsetDays) * dayMs;
+                  }
+
+                  const subtaskTitles = Array.isArray(item.subtasks)
+                    ? item.subtasks.map((st: any) => String(typeof st === 'string' ? st : st?.title || '')).filter(Boolean)
+                    : [];
+
+                  return {
+                    title: String(item.title || 'Task from Brain Dump').trim(),
+                    description: String(item.description || '').trim(),
+                    dueDate: due,
+                    priority: prio,
+                    isRecurring: Boolean(item.isRecurring),
+                    recurrenceInterval: recInterval,
+                    subtaskTitles
+                  };
+                });
+              }
+            }
+          }
+        } catch (err) {
+          console.warn(`Brain dump parsing with ${modelToTry} failed, trying fallback:`, err);
+        }
+      }
+    }
+
+    // Heuristic Fallback: Split raw text into meaningful lines/paragraphs
+    return this.heuristicBrainDumpParsing(brainDumpText);
+  },
+
+  /**
+   * Heuristic fallback parser when offline or without an active API key
+   */
+  heuristicBrainDumpParsing(brainDumpText: string): GoalBreakdownItem[] {
+    const lines = brainDumpText
+      .split(/[\r\n]+/)
+      .map((l) => l.trim().replace(/^[-*•\d.)\]\s]+/, '').trim())
+      .filter((l) => l.length > 2);
+
+    if (lines.length === 0) return [];
+
+    const now = Date.now();
+    const dayMs = 24 * 60 * 60 * 1000;
+
+    return lines.map((line, idx) => {
+      const lower = line.toLowerCase();
+      let prio: Priority = 'MEDIUM';
+      if (lower.includes('urgent') || lower.includes('asap') || lower.includes('critical')) prio = 'URGENT';
+      else if (lower.includes('important') || lower.includes('high') || lower.includes('priority')) prio = 'HIGH';
+      else if (lower.includes('low') || lower.includes('someday') || lower.includes('eventually')) prio = 'LOW';
+
+      let due: number | null = now + (idx % 3 + 1) * dayMs;
+      if (lower.includes('today')) due = now;
+      else if (lower.includes('tomorrow')) due = now + 1 * dayMs;
+
+      return {
+        title: line,
+        description: 'Extracted from Brain Dump scratchpad',
+        dueDate: due,
+        priority: prio,
+        isRecurring: false,
+        recurrenceInterval: 'NONE',
+        subtaskTitles: []
+      };
+    });
   }
 };

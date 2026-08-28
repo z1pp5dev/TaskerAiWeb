@@ -7,6 +7,7 @@ const STORAGE_KEYS = {
   CATEGORIES: 'tasker_ai_categories_v1',
   BYOK_CONFIG: 'tasker_ai_byok_config_v1',
   PRO_USER: 'tasker_ai_pro_user_data_v1',
+  BRAIN_DUMP: 'tasker_ai_brain_dump_v1',
   THEME: 'tasker_ai_theme_v1',
   NOTES: 'tasker_ai_notes_v1'
 };
@@ -233,7 +234,7 @@ class StorageService {
         await googleDriveService.saveToDrive(
           this.getTasks(),
           this.getCategories(),
-          undefined,
+          this.getBrainDump(),
           this.getBYOKConfig(),
           this.getProUserData()
         );
@@ -241,6 +242,26 @@ class StorageService {
         console.warn('Background Google Drive sync failed:', e);
       }
     }, 1000);
+  }
+
+  // --- BRAIN DUMP API ---
+  getBrainDump(): string {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEYS.BRAIN_DUMP);
+      return raw || '';
+    } catch (e) {
+      console.error('Failed to load brain dump:', e);
+      return '';
+    }
+  }
+
+  saveBrainDump(content: string): void {
+    try {
+      localStorage.setItem(STORAGE_KEYS.BRAIN_DUMP, content || '');
+      this.scheduleBackgroundSync();
+    } catch (e) {
+      console.error('Failed to save brain dump:', e);
+    }
   }
 
   // --- CATEGORIES API ---
@@ -515,6 +536,7 @@ class StorageService {
       let localTasks = this.getTasks();
       const localBYOK = this.getBYOKConfig();
       const localPro = this.getProUserData();
+      const localBrainDump = this.getBrainDump();
 
       // 2. Fetch Google Drive data
       const driveData = await googleDriveService.loadFromDrive();
@@ -522,8 +544,18 @@ class StorageService {
       const driveTasks = driveData?.tasks || [];
       const driveBYOK = driveData?.byokConfig;
       const drivePro = driveData?.user;
+      const driveBrainDump = driveData?.brainDump;
 
-      // 3. Merge Pro User Data (Android Rewarded Pass / Lifetime Pro)
+      // 3. Merge Brain Dump (Exact match to Kotlin @SerializedName("brainDump"))
+      let mergedBrainDump = localBrainDump;
+      if (typeof driveBrainDump === 'string' && driveBrainDump) {
+        if (!localBrainDump || driveBrainDump !== localBrainDump) {
+          mergedBrainDump = driveBrainDump;
+          localStorage.setItem(STORAGE_KEYS.BRAIN_DUMP, mergedBrainDump);
+        }
+      }
+
+      // 4. Merge Pro User Data (Android Rewarded Pass / Lifetime Pro)
       let mergedPro = localPro;
       if (drivePro) {
         const isDriveProActive = drivePro.isPro && (
@@ -541,7 +573,7 @@ class StorageService {
         }
       }
 
-      // 4. Merge BYOK Config (Sync API Key across devices)
+      // 5. Merge BYOK Config (Sync API Key across devices)
       let mergedBYOK = localBYOK;
       if (driveBYOK && driveBYOK.apiKey && driveBYOK.isValidated) {
         if (!localBYOK.apiKey || !localBYOK.isValidated || (driveBYOK.lastValidatedAt || 0) >= (localBYOK.lastValidatedAt || 0)) {
@@ -552,7 +584,7 @@ class StorageService {
         mergedBYOK = localBYOK;
       }
 
-      // 5. Normalize and merge tasks from Drive
+      // 6. Normalize and merge tasks from Drive
       const normalizedDriveTasks: TaskItem[] = driveTasks.map((t: any, idx: number) => {
         let prio: Priority = 'MEDIUM';
         if (t.priority === 'High' || t.priority === 'HIGH') prio = 'HIGH';
@@ -616,8 +648,8 @@ class StorageService {
       const mergedTasks = Array.from(taskMap.values()).sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0));
       localStorage.setItem(STORAGE_KEYS.TASKS, JSON.stringify(mergedTasks));
 
-      // 6. Upload merged snapshot to Google Drive
-      const saveRes = await googleDriveService.saveToDrive(mergedTasks, mergedCategories, driveData?.brainDump || '', mergedBYOK, mergedPro);
+      // 7. Upload merged snapshot to Google Drive
+      const saveRes = await googleDriveService.saveToDrive(mergedTasks, mergedCategories, mergedBrainDump, mergedBYOK, mergedPro);
 
       return {
         mergedTasksCount: mergedTasks.length,
@@ -642,7 +674,8 @@ class StorageService {
       const tasks = this.getTasks();
       const byokConfig = this.getBYOKConfig();
       const proUser = this.getProUserData();
-      const res = await googleDriveService.saveToDrive(tasks, categories, undefined, byokConfig, proUser);
+      const brainDump = this.getBrainDump();
+      const res = await googleDriveService.saveToDrive(tasks, categories, brainDump, byokConfig, proUser);
       return res;
     } catch (e: any) {
       console.error('Failed manual sync to Google Drive:', e);
@@ -710,6 +743,7 @@ class StorageService {
     localStorage.setItem(STORAGE_KEYS.TASKS, JSON.stringify(DEFAULT_TASKS));
     localStorage.setItem(STORAGE_KEYS.BYOK_CONFIG, JSON.stringify(DEFAULT_BYOK_CONFIG));
     localStorage.setItem(STORAGE_KEYS.PRO_USER, JSON.stringify({ isPro: false, proUnlockType: 'none', proExpiresAt: null }));
+    localStorage.setItem(STORAGE_KEYS.BRAIN_DUMP, '');
   }
 
   exportData(): string {

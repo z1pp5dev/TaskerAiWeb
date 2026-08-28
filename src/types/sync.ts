@@ -1,15 +1,22 @@
 export interface ProUserData {
   isPro: boolean;
-  proUnlockType: "rewarded_ad_pass" | "lifetime" | "none";
+  proUnlockType: string;
   proExpiresAt: string | null; // ISO 8601 string (e.g. 2026-08-28T15:30:00Z)
 }
 
-export interface TaskItem {
+export interface SyncCategoryItem {
+  id: string;
+  name: string;
+  color: string;
+  icon?: string;
+}
+
+export interface SyncTaskItem {
   id: string;
   categoryId: string;
   title: string;
   isCompleted: boolean;
-  priority: "High" | "Medium" | "Low";
+  priority: string;
   createdAt: string;
   updatedAt: string;
   description?: string;
@@ -21,20 +28,13 @@ export interface TaskItem {
   subtasks?: Array<{ id: string; title: string; isCompleted: boolean }>;
 }
 
-export interface CategoryItem {
-  id: string;
-  name: string;
-  color: string;
-  icon?: string;
-}
-
 export interface AppDataBackup {
   version: string;
   lastSynced: string;
   user: ProUserData;
-  categories: CategoryItem[];
-  tasks: TaskItem[];
-  brainDump: string;
+  categories: SyncCategoryItem[];
+  tasks: SyncTaskItem[];
+  brainDump: string; // Exact match to Kotlin @SerializedName("brainDump")
   byokConfig?: {
     apiKey: string;
     model: string;
@@ -43,3 +43,7 @@ export interface AppDataBackup {
     demoAiUsesCount: number;
   };
 }
+
+// Backwards-compatible aliases
+export type CategoryItem = SyncCategoryItem;
+export type TaskItem = SyncTaskItem;

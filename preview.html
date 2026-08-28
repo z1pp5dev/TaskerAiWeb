@@ -215,10 +215,24 @@
     const STORAGE_KEYS = {
       TASKS: 'tasker_ai_tasks_v1',
       CATEGORIES: 'tasker_ai_categories_v1',
-      BYOK_CONFIG: 'tasker_ai_byok_config_v1'
+      BYOK_CONFIG: 'tasker_ai_byok_config_v1',
+      PRO_USER: 'tasker_ai_pro_user_data_v1',
+      BRAIN_DUMP: 'tasker_ai_brain_dump_v1'
     };
 
     const storageService = {
+      getBrainDump() {
+        try {
+          return localStorage.getItem(STORAGE_KEYS.BRAIN_DUMP) || '';
+        } catch (e) {
+          return '';
+        }
+      },
+      saveBrainDump(content) {
+        try {
+          localStorage.setItem(STORAGE_KEYS.BRAIN_DUMP, content || '');
+        } catch (e) {}
+      },
       getCategories() {
         try {
           const raw = localStorage.getItem(STORAGE_KEYS.CATEGORIES);
@@ -663,6 +677,69 @@ Break down user goal into 3-5 sequential actionable milestones. Return ONLY a JS
             subtaskTitles: ['Audit final checklist', 'Document learnings', 'Celebrate completion']
           }
         ];
+      },
+      async parseBrainDumpToTasks(brainDumpText, config) {
+        if (!brainDumpText || !brainDumpText.trim()) return [];
+
+        if (config && config.apiKey && config.isValidated) {
+          const cleanModel = (config.model && config.model.includes('3.6')) ? config.model : 'gemini-3.6-flash';
+          const candidateModels = [
+            cleanModel,
+            'gemini-3.6-flash',
+            'gemini-3.6-pro',
+            'gemini-3.6-flash-lite',
+            'gemini-3.6-flash-8b'
+          ].filter((m, idx, arr) => m && arr.indexOf(m) === idx);
+
+          const today = new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+          const systemPrompt = `You are an AI task extraction assistant for Tasker AI. Reference Date: ${today}.
+Extract structured tasks from user's raw Brain Dump notes. Return ONLY a JSON array:
+[ { "title": string, "description": string, "dueDateOffsetDays": number, "priority": "LOW"|"MEDIUM"|"HIGH"|"URGENT", "subtasks": string[] } ]`;
+
+          for (const modelToTry of candidateModels) {
+            try {
+              const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${modelToTry}:generateContent?key=${config.apiKey.trim()}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  contents: [{ parts: [{ text: `${systemPrompt}\n\nBrain Dump:\n"""\n${brainDumpText}\n"""` }] }]
+                })
+              });
+              if (res.ok) {
+                const data = await res.json();
+                let text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+                text = text.replace(/```json/g, '').replace(/```/g, '').trim();
+                const arr = JSON.parse(text);
+                if (Array.isArray(arr) && arr.length > 0) {
+                  const now = Date.now();
+                  return arr.map((item, i) => ({
+                    title: item.title || `Task ${i+1}`,
+                    description: item.description || '',
+                    dueDate: now + (item.dueDateOffsetDays || i+1) * 86400000,
+                    priority: item.priority || 'MEDIUM',
+                    isRecurring: false,
+                    recurrenceInterval: 'NONE',
+                    subtaskTitles: Array.isArray(item.subtasks) ? item.subtasks : []
+                  }));
+                }
+              }
+            } catch (e) {
+              console.warn(`Brain dump parsing on ${modelToTry} failed, trying fallback...`, e);
+            }
+          }
+        }
+        // Heuristic fallback
+        const lines = brainDumpText.split(/[\r\n]+/).map(l => l.trim().replace(/^[-*•\d.)\]\s]+/, '').trim()).filter(l => l.length > 2);
+        const now = Date.now();
+        return lines.map((line, idx) => ({
+          title: line,
+          description: 'Extracted from Brain Dump scratchpad',
+          dueDate: now + (idx % 3 + 1) * 86400000,
+          priority: 'MEDIUM',
+          isRecurring: false,
+          recurrenceInterval: 'NONE',
+          subtaskTitles: []
+        }));
       }
     };    // --- GOOGLE DRIVE DIRECT SYNC SERVICE ---
     const googleDriveService = {
@@ -930,6 +1007,8 @@ Break down user goal into 3-5 sequential actionable milestones. Return ONLY a JS
       const [smartInput, setSmartInput] = useState('');
       const [isAiLoading, setIsAiLoading] = useState(false);
       const [isRecording, setIsRecording] = useState(false);
+      const [isBrainDumpOpen, setIsBrainDumpOpen] = useState(false);
+      const [brainDump, setBrainDump] = useState(storageService.getBrainDump());
       const recognitionRef = useRef(null);
 
       // Toast notification
@@ -947,6 +1026,7 @@ Break down user goal into 3-5 sequential actionable milestones. Return ONLY a JS
         setCategories(storageService.getCategories());
         setByokConfig(storageService.getBYOKConfig());
         setProUserData(storageService.getProUserData());
+        setBrainDump(storageService.getBrainDump());
       };
 
       useEffect(() => {
@@ -960,6 +1040,9 @@ Break down user goal into 3-5 sequential actionable milestones. Return ONLY a JS
             if (driveData) {
               if (driveData.user) {
                 storageService.saveProUserData(driveData.user);
+              }
+              if (typeof driveData.brainDump === 'string' && driveData.brainDump) {
+                storageService.saveBrainDump(driveData.brainDump);
               }
               if (driveData.byokConfig?.apiKey && driveData.byokConfig.isValidated) {
                 storageService.saveBYOKConfig(driveData.byokConfig);
@@ -981,6 +1064,9 @@ Break down user goal into 3-5 sequential actionable milestones. Return ONLY a JS
               if (driveData) {
                 if (driveData.user) {
                   storageService.saveProUserData(driveData.user);
+                }
+                if (typeof driveData.brainDump === 'string' && driveData.brainDump) {
+                  storageService.saveBrainDump(driveData.brainDump);
                 }
                 if (driveData.byokConfig?.apiKey && driveData.byokConfig.isValidated) {
                   storageService.saveBYOKConfig(driveData.byokConfig);
@@ -1294,7 +1380,7 @@ Break down user goal into 3-5 sequential actionable milestones. Return ONLY a JS
                   </div>
                 </form>
 
-                {/* Search & AI Goal Trigger */}
+                {/* Search, Brain Dump & AI Goal Trigger */}
                 <div className="flex items-center gap-2">
                   <div className="relative flex-1">
                     <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 text-xs">🔍</span>
@@ -1310,6 +1396,15 @@ Break down user goal into 3-5 sequential actionable milestones. Return ONLY a JS
                     )}
                   </div>
                   <button
+                    type="button"
+                    onClick={() => setIsBrainDumpOpen(true)}
+                    className="flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-750 border border-slate-700/80 hover:border-purple-500/50 text-purple-300 text-xs font-bold shadow-sm shrink-0"
+                    title="Open Brain Dump Scratchpad"
+                  >
+                    🧠 <span className="hidden sm:inline">Brain Dump</span>
+                  </button>
+                  <button
+                    type="button"
                     onClick={() => setIsAiModalOpen(true)}
                     className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 text-white text-xs font-bold shadow-md shrink-0"
                   >
@@ -1641,6 +1736,28 @@ Break down user goal into 3-5 sequential actionable milestones. Return ONLY a JS
                 showToast(`Added ${newTasks.length} AI structured tasks!`, 'success');
               }}
               onOpenUpgrade={() => { setIsAiModalOpen(false); setIsUpgradeOpen(true); }}
+              onIncDemo={() => { storageService.incrementDemoUses(); loadData(); }}
+            />
+          )}
+
+          {/* Brain Dump Scratchpad Modal */}
+          {isBrainDumpOpen && (
+            <BrainDumpDialog
+              initialContent={brainDump}
+              categories={categories}
+              config={byokConfig}
+              tier={currentTier}
+              onClose={() => setIsBrainDumpOpen(false)}
+              onSaveContent={(c) => {
+                setBrainDump(c);
+                storageService.saveBrainDump(c);
+              }}
+              onAddTasks={(newTasks) => {
+                newTasks.forEach(t => storageService.addTask(t));
+                loadData();
+                showToast(`Added ${newTasks.length} tasks from Brain Dump!`, 'success');
+              }}
+              onOpenUpgrade={() => { setIsBrainDumpOpen(false); setIsUpgradeOpen(true); }}
               onIncDemo={() => { storageService.incrementDemoUses(); loadData(); }}
             />
           )}
@@ -2038,6 +2155,203 @@ Break down user goal into 3-5 sequential actionable milestones. Return ONLY a JS
                   <button onClick={onClose} className="text-xs text-slate-400">Cancel</button>
                   <button onClick={handleGen} disabled={!prompt.trim() || loading} className="px-6 py-2 bg-purple-600 text-white rounded-xl text-xs font-bold disabled:opacity-50">
                     Generate Tasks
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    function BrainDumpDialog({ initialContent, categories, config, tier, onClose, onSaveContent, onAddTasks, onOpenUpgrade, onIncDemo }) {
+      const [content, setContent] = useState(initialContent || '');
+      const [loading, setLoading] = useState(false);
+      const [results, setResults] = useState(null);
+      const [selectedIndices, setSelectedIndices] = useState(new Set());
+      const [clearAfter, setClearAfter] = useState(true);
+      const [selectedCatId, setSelectedCatId] = useState(categories[0]?.id || null);
+
+      const handleTextChange = (e) => {
+        const val = e.target.value;
+        setContent(val);
+        storageService.saveBrainDump(val);
+        onSaveContent(val);
+      };
+
+      const handleClear = () => {
+        if (!content.trim() || confirm('Clear all notes from Brain Dump scratchpad?')) {
+          setContent('');
+          storageService.saveBrainDump('');
+          onSaveContent('');
+        }
+      };
+
+      const handleConvert = async () => {
+        if (!content.trim() || loading) return;
+        if (tier === 'FREE_DEMO' && config.demoAiUsesCount >= 3) {
+          onOpenUpgrade();
+          return;
+        }
+        setLoading(true);
+        const res = await geminiService.parseBrainDumpToTasks(content, config);
+        setResults(res);
+        setSelectedIndices(new Set(res.map((_, i) => i)));
+        if (tier === 'FREE_DEMO') onIncDemo();
+        setLoading(false);
+      };
+
+      const toggleIndex = (idx) => {
+        setSelectedIndices(prev => {
+          const next = new Set(prev);
+          if (next.has(idx)) next.delete(idx);
+          else next.add(idx);
+          return next;
+        });
+      };
+
+      const handleImport = () => {
+        if (!results) return;
+        const tasksToImport = results.filter((_, i) => selectedIndices.has(i));
+        if (tasksToImport.length === 0) return;
+
+        onAddTasks(tasksToImport.map(r => ({
+          ...r,
+          categoryId: selectedCatId,
+          subtasks: (r.subtaskTitles || []).map(t => ({ id: 'st_' + Math.random(), title: t, isCompleted: false }))
+        })));
+
+        if (clearAfter) {
+          setContent('');
+          storageService.saveBrainDump('');
+          onSaveContent('');
+        }
+        onClose();
+      };
+
+      const wordCount = content.trim() ? content.trim().split(/\s+/).length : 0;
+
+      return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fade-in">
+          <div className="w-full max-w-xl max-h-[90vh] flex flex-col rounded-3xl bg-slate-900 border border-purple-500/40 shadow-2xl overflow-hidden animate-scale-in">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800 bg-gradient-to-r from-purple-950/60 to-slate-900">
+              <div className="flex items-center gap-2">
+                <span className="text-purple-400 text-lg">🧠</span>
+                <div>
+                  <h2 className="text-base font-bold text-slate-100 flex items-center gap-2">
+                    Brain Dump Scratchpad
+                    <span className="px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300 text-[10px] font-bold">AI-Powered</span>
+                  </h2>
+                  <p className="text-xs text-slate-400">Jot thoughts & convert to structured tasks</p>
+                </div>
+              </div>
+              <button onClick={onClose} className="text-slate-400 hover:text-slate-200">✕</button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-6 flex flex-col gap-4">
+              {!results ? (
+                <>
+                  <textarea
+                    value={content}
+                    onChange={handleTextChange}
+                    placeholder="Dump everything on your mind here...&#10;&#10;• Call accountant before Friday&#10;• Need to buy groceries&#10;• Finish mobile sync refactor&#10;• Plan weekend workout"
+                    rows={8}
+                    className="w-full p-4 rounded-2xl bg-slate-950/80 border border-slate-800 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-purple-500 font-sans resize-none shadow-inner"
+                    autoFocus
+                  />
+                  <div className="flex items-center justify-between text-xs text-slate-400">
+                    <span className="text-cyan-400">☁️ Auto-synced to Cloud ({wordCount} words)</span>
+                    {content.trim() && (
+                      <button onClick={handleClear} className="text-slate-400 hover:text-rose-400 text-xs">
+                        🗑️ Clear
+                      </button>
+                    )}
+                  </div>
+                  {loading && (
+                    <div className="p-4 text-center text-purple-300 text-sm animate-pulse">
+                      Analyzing thoughts and extracting structured tasks with Gemini AI...
+                    </div>
+                  )}
+                </>
+              ) : (
+                <div className="flex flex-col gap-3">
+                  <div className="flex items-center justify-between pb-2 border-b border-slate-800 text-xs">
+                    <span className="font-bold text-slate-200">Extracted {results.length} Structured Tasks</span>
+                    <button
+                      onClick={() => setSelectedIndices(selectedIndices.size === results.length ? new Set() : new Set(results.map((_, i) => i)))}
+                      className="text-purple-400 font-semibold"
+                    >
+                      {selectedIndices.size === results.length ? 'Deselect All' : 'Select All'}
+                    </button>
+                  </div>
+                  <div className="flex items-center gap-2 text-xs">
+                    <span className="text-slate-400 font-bold">Assign Category:</span>
+                    <select
+                      value={selectedCatId || ''}
+                      onChange={(e) => setSelectedCatId(e.target.value || null)}
+                      className="px-2.5 py-1 rounded-xl bg-slate-800 border border-slate-700 text-slate-200"
+                    >
+                      <option value="">No Category</option>
+                      {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                    </select>
+                  </div>
+                  <div className="flex flex-col gap-2 max-h-64 overflow-y-auto">
+                    {results.map((r, idx) => {
+                      const isSel = selectedIndices.has(idx);
+                      return (
+                        <div
+                          key={idx}
+                          onClick={() => toggleIndex(idx)}
+                          className={`p-3 rounded-xl border cursor-pointer flex items-start gap-2.5 text-xs ${isSel ? 'bg-purple-950/40 border-purple-500/60' : 'bg-slate-800/40 border-slate-800 opacity-60'}`}
+                        >
+                          <div className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 ${isSel ? 'bg-purple-600 border-purple-500 text-white' : 'border-slate-600 bg-slate-800'}`}>
+                            {isSel && '✓'}
+                          </div>
+                          <div className="flex-1">
+                            <div className="flex items-center justify-between">
+                              <span className="font-bold text-slate-200">{r.title}</span>
+                              <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-700 text-slate-300">{r.priority}</span>
+                            </div>
+                            {r.description && <p className="text-[11px] text-slate-400 mt-0.5">{r.description}</p>}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer pt-1">
+                    <input
+                      type="checkbox"
+                      checked={clearAfter}
+                      onChange={(e) => setClearAfter(e.target.checked)}
+                      className="rounded border-slate-700 text-purple-600"
+                    />
+                    <span>Clear Brain Dump scratchpad after adding tasks</span>
+                  </label>
+                </div>
+              )}
+            </div>
+
+            <div className="flex justify-between px-6 py-4 border-t border-slate-800 bg-slate-900">
+              {results ? (
+                <>
+                  <button onClick={() => setResults(null)} className="text-xs text-slate-400">Back</button>
+                  <button
+                    onClick={handleImport}
+                    disabled={selectedIndices.size === 0}
+                    className="px-6 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 text-white rounded-xl text-xs font-bold disabled:opacity-50"
+                  >
+                    Add {selectedIndices.size} Tasks to Dashboard
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button onClick={onClose} className="text-xs text-slate-400">Close</button>
+                  <button
+                    onClick={handleConvert}
+                    disabled={!content.trim() || loading}
+                    className="px-6 py-2 bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded-xl text-xs font-bold disabled:opacity-50"
+                  >
+                    ✨ Convert to Tasks with AI
                   </button>
                 </>
               )}

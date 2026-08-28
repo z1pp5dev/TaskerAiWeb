@@ -22,6 +22,7 @@ import { AiBreakdownModal } from './components/AiBreakdownModal';
 import { SettingsModal } from './components/SettingsModal';
 import { UpgradeModal } from './components/UpgradeModal';
 import { CloudSyncModal } from './components/CloudSyncModal';
+import { BrainDumpModal } from './components/BrainDumpModal';
 import { HistoryArchive } from './components/HistoryArchive';
 import { Toast } from './components/Toast';
 import {
@@ -46,6 +47,7 @@ export const App: React.FC = () => {
   const [categories, setCategories] = useState<Category[]>([]);
   const [byokConfig, setByokConfig] = useState<BYOKConfig>(storageService.getBYOKConfig());
   const [proUserData, setProUserData] = useState<ProUserData>(storageService.getProUserData());
+  const [brainDump, setBrainDump] = useState<string>(storageService.getBrainDump());
   const [currentScreen, setCurrentScreen] = useState<AppScreen>('DASHBOARD');
   const [user, setUser] = useState<GoogleDriveUser | null>(googleDriveService.getUser());
   const [isSyncing, setIsSyncing] = useState(false);
@@ -64,6 +66,7 @@ export const App: React.FC = () => {
   const [isAddEditModalOpen, setIsAddEditModalOpen] = useState(false);
   const [editingTask, setEditingTask] = useState<TaskItem | null>(null);
   const [isAiBreakdownModalOpen, setIsAiBreakdownModalOpen] = useState(false);
+  const [isBrainDumpModalOpen, setIsBrainDumpModalOpen] = useState(false);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
   const [isUpgradeModalOpen, setIsUpgradeModalOpen] = useState(false);
   const [isCloudSyncModalOpen, setIsCloudSyncModalOpen] = useState(false);
@@ -76,6 +79,7 @@ export const App: React.FC = () => {
     setCategories(storageService.getCategories());
     setByokConfig(storageService.getBYOKConfig());
     setProUserData(storageService.getProUserData());
+    setBrainDump(storageService.getBrainDump());
   }, []);
 
   // Toast Helper
@@ -380,6 +384,15 @@ export const App: React.FC = () => {
     showToast(`Added ${newTasks.length} AI generated tasks to your focus list!`, 'success');
   };
 
+  // Brain Dump extracted tasks batch add
+  const handleAddBrainDumpTasks = (newTasks: Omit<TaskItem, 'id' | 'createdAt' | 'sortOrder'>[]) => {
+    newTasks.forEach((task) => {
+      storageService.addTask(task);
+    });
+    loadData();
+    showToast(`Added ${newTasks.length} tasks from Brain Dump!`, 'success');
+  };
+
   // Category Handlers
   const handleAddCategory = (name: string, color?: string) => {
     storageService.addCategory(name, color);
@@ -558,6 +571,7 @@ export const App: React.FC = () => {
               onSearchChange={setSearchQuery}
               onSmartAdd={handleSmartAdd}
               onOpenAiBreakdown={() => setIsAiBreakdownModalOpen(true)}
+              onOpenBrainDump={() => setIsBrainDumpModalOpen(true)}
               tier={currentTier}
               demoAiUsesCount={byokConfig.demoAiUsesCount}
               onOpenUpgradeModal={() => setIsUpgradeModalOpen(true)}
@@ -674,6 +688,29 @@ export const App: React.FC = () => {
           onAddGeneratedTasks={handleAddGeneratedTasks}
           onOpenUpgradeModal={() => {
             setIsAiBreakdownModalOpen(false);
+            setIsUpgradeModalOpen(true);
+          }}
+          onIncrementDemoUses={() => {
+            storageService.incrementDemoAiUses();
+            setByokConfig(storageService.getBYOKConfig());
+          }}
+        />
+      )}
+
+      {isBrainDumpModalOpen && (
+        <BrainDumpModal
+          initialContent={brainDump}
+          categories={categories}
+          byokConfig={byokConfig}
+          tier={currentTier}
+          onClose={() => setIsBrainDumpModalOpen(false)}
+          onSaveContent={(content) => {
+            setBrainDump(content);
+            storageService.saveBrainDump(content);
+          }}
+          onAddTasks={handleAddBrainDumpTasks}
+          onOpenUpgradeModal={() => {
+            setIsBrainDumpModalOpen(false);
             setIsUpgradeModalOpen(true);
           }}
           onIncrementDemoUses={() => {
