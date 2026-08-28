@@ -1,4 +1,5 @@
 import { TaskItem, Category, BYOKConfig } from '../types';
+import { AppDataBackup, ProUserData } from '../types/sync';
 
 export interface GoogleUserData {
   id?: string;
@@ -10,14 +11,7 @@ export interface GoogleUserData {
 
 export type GoogleDriveUser = GoogleUserData;
 
-export interface AppDataBackup {
-  version: string;
-  lastSynced: string;
-  categories: Category[];
-  tasks: TaskItem[];
-  brainDump?: string;
-  byokConfig?: BYOKConfig;
-}
+export type { AppDataBackup, ProUserData };
 
 export interface GoogleDriveSyncData {
   tasks: TaskItem[];
@@ -358,17 +352,54 @@ export class GoogleDriveService {
     return await loadFromGoogleDrive(token);
   }
 
-  async saveToDrive(tasks: TaskItem[], categories: Category[], brainDump?: string, byokConfig?: BYOKConfig): Promise<GoogleDriveSyncResult> {
+  async saveToDrive(
+    tasks: TaskItem[],
+    categories: Category[],
+    brainDump?: string,
+    byokConfig?: BYOKConfig,
+    proUser?: ProUserData
+  ): Promise<GoogleDriveSyncResult> {
     const token = this.getAccessToken();
     if (!token) {
       return { success: false, error: 'Not authenticated with Google.' };
     }
 
+    const formattedTasks = tasks.map((t) => ({
+      id: String(t.id),
+      categoryId: t.categoryId ? String(t.categoryId) : '',
+      title: t.title,
+      description: t.description || '',
+      dueDate: t.dueDate ?? null,
+      isCompleted: Boolean(t.isCompleted),
+      priority: (t.priority === 'HIGH' || t.priority === 'URGENT' ? 'High' : t.priority === 'LOW' ? 'Low' : 'Medium') as "High" | "Medium" | "Low",
+      isRecurring: Boolean(t.isRecurring),
+      recurrenceInterval: t.recurrenceInterval || 'NONE',
+      hasAlarm: Boolean(t.hasAlarm),
+      sortOrder: t.sortOrder,
+      createdAt: typeof t.createdAt === 'number' ? new Date(t.createdAt).toISOString() : String(t.createdAt || new Date().toISOString()),
+      updatedAt: new Date().toISOString(),
+      subtasks: t.subtasks || []
+    }));
+
+    const formattedCategories = categories.map((c) => ({
+      id: String(c.id),
+      name: c.name,
+      color: c.color || '#a855f7',
+      icon: c.icon
+    }));
+
+    const userStatus: ProUserData = proUser || {
+      isPro: false,
+      proUnlockType: 'none',
+      proExpiresAt: null
+    };
+
     const backupData: AppDataBackup = {
       version: '1.0.0',
       lastSynced: new Date().toISOString(),
-      tasks,
-      categories,
+      user: userStatus,
+      categories: formattedCategories,
+      tasks: formattedTasks,
       brainDump: brainDump || '',
       byokConfig
     };

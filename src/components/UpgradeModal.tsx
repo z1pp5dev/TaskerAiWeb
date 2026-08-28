@@ -6,18 +6,23 @@ import {
   Check,
   X,
   ExternalLink,
-  ArrowRight
+  ArrowRight,
+  Crown,
+  Smartphone
 } from 'lucide-react';
 import { UserTier } from '../types';
+import { ProUserData } from '../types/sync';
 
 interface UpgradeModalProps {
   tier: UserTier;
+  proUserData?: ProUserData;
   onClose: () => void;
   onOpenSettings: () => void;
 }
 
 export const UpgradeModal: React.FC<UpgradeModalProps> = ({
   tier,
+  proUserData,
   onClose,
   onOpenSettings
 }) => {
@@ -47,6 +52,41 @@ export const UpgradeModal: React.FC<UpgradeModalProps> = ({
 
         {/* Body */}
         <div className="flex-1 overflow-y-auto p-6 flex flex-col gap-5">
+          {/* Pro Pass Status Card (if unlocked via Android App) */}
+          {proUserData?.isPro && (
+            <div className="p-4 rounded-2xl border-2 border-amber-500/80 bg-gradient-to-r from-amber-950/50 via-slate-900 to-slate-850 shadow-xl">
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-2">
+                  <Crown className="w-5 h-5 text-amber-400" />
+                  <h3 className="text-sm font-bold text-amber-200">
+                    {proUserData.proUnlockType === 'lifetime' ? 'Lifetime Pro Pass Active' : 'Rewarded Ad Pass Active'}
+                  </h3>
+                </div>
+                <span className="px-2.5 py-0.5 rounded-full bg-amber-400/20 border border-amber-400/40 text-amber-300 text-[11px] font-bold">
+                  Synced from Android
+                </span>
+              </div>
+              <p className="text-xs text-slate-300">
+                {proUserData.proUnlockType === 'lifetime'
+                  ? 'Your lifetime Pro license was successfully detected from your Google Drive backup. Enjoy unlimited AI!'
+                  : `Your Rewarded Ad Pass is active until ${proUserData.proExpiresAt ? new Date(proUserData.proExpiresAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'expiry'}.`}
+              </p>
+            </div>
+          )}
+
+          {/* Android App Ad Pass Card (if not active) */}
+          {!proUserData?.isPro && (
+            <div className="p-4 rounded-2xl border border-slate-800 bg-gradient-to-r from-indigo-950/40 to-slate-900">
+              <div className="flex items-center gap-2 mb-1.5">
+                <Smartphone className="w-4 h-4 text-indigo-400" />
+                <h4 className="text-xs font-bold text-indigo-200">Watch an Ad on Android for Free Pro Pass</h4>
+              </div>
+              <p className="text-xs text-slate-400 leading-relaxed">
+                Watch a quick rewarded video ad in the Tasker AI Android app to unlock a 4-hour Pro Pass that automatically syncs to this web browser via Google Drive!
+              </p>
+            </div>
+          )}
+
           {/* BYOK Activation Card */}
           <div className="relative flex flex-col justify-between p-5 rounded-2xl border-2 border-purple-500/80 bg-gradient-to-b from-purple-950/40 via-slate-850 to-slate-900 shadow-xl">
             <div className="flex items-center justify-between mb-3">

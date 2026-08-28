@@ -7,7 +7,8 @@ import {
   BYOKConfig,
   UserTier,
   AppScreen,
-  ToastNotification
+  ToastNotification,
+  ProUserData
 } from './types';
 import { storageService } from './services/storageService';
 import { geminiService } from './services/geminiService';
@@ -35,7 +36,8 @@ import {
   Sparkles,
   Cloud,
   CloudOff,
-  HardDrive
+  HardDrive,
+  Crown
 } from 'lucide-react';
 
 export const App: React.FC = () => {
@@ -43,6 +45,7 @@ export const App: React.FC = () => {
   const [tasks, setTasks] = useState<TaskItem[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [byokConfig, setByokConfig] = useState<BYOKConfig>(storageService.getBYOKConfig());
+  const [proUserData, setProUserData] = useState<ProUserData>(storageService.getProUserData());
   const [currentScreen, setCurrentScreen] = useState<AppScreen>('DASHBOARD');
   const [user, setUser] = useState<GoogleDriveUser | null>(googleDriveService.getUser());
   const [isSyncing, setIsSyncing] = useState(false);
@@ -72,6 +75,7 @@ export const App: React.FC = () => {
     setTasks(storageService.getTasks());
     setCategories(storageService.getCategories());
     setByokConfig(storageService.getBYOKConfig());
+    setProUserData(storageService.getProUserData());
   }, []);
 
   // Toast Helper
@@ -172,9 +176,10 @@ export const App: React.FC = () => {
 
   // Determine Active Tier
   const currentTier: UserTier = useMemo(() => {
+    if (storageService.isProUserActive()) return 'PRO_PASS_UNLOCKED';
     if (byokConfig.apiKey && byokConfig.isValidated) return 'BYOK_UNLOCKED';
     return 'FREE_DEMO';
-  }, [byokConfig]);
+  }, [byokConfig, proUserData]);
 
   // Category task count mapping
   const categoryTaskCounts = useMemo(() => {
@@ -472,14 +477,38 @@ export const App: React.FC = () => {
             <button
               onClick={() => setIsUpgradeModalOpen(true)}
               className={`flex items-center gap-1 px-2.5 py-1 rounded-xl text-[11px] font-bold border transition-all active:scale-95 ${
-                currentTier === 'BYOK_UNLOCKED'
+                currentTier === 'PRO_PASS_UNLOCKED'
+                  ? 'bg-amber-500/20 border-amber-400/50 text-amber-300 hover:bg-amber-500/30 shadow-sm shadow-amber-500/20'
+                  : currentTier === 'BYOK_UNLOCKED'
                   ? 'bg-emerald-950/60 border-emerald-500/50 text-emerald-300 hover:bg-emerald-950'
                   : 'bg-amber-950/60 border-amber-500/50 text-amber-300 hover:bg-amber-950'
               }`}
-              title="Unlock All Features with Free BYOK"
+              title={
+                currentTier === 'PRO_PASS_UNLOCKED'
+                  ? proUserData.proUnlockType === 'lifetime'
+                    ? 'Lifetime Pro Pass (Synced from Android)'
+                    : 'Rewarded Ad Pass (Synced from Android)'
+                  : currentTier === 'BYOK_UNLOCKED'
+                  ? 'BYOK Free Gemini API Key Active'
+                  : 'Free Demo Mode (3 Uses)'
+              }
             >
-              {currentTier === 'BYOK_UNLOCKED' ? <ShieldCheck className="w-3 h-3" /> : <Zap className="w-3 h-3" />}
-              <span>{currentTier === 'BYOK_UNLOCKED' ? 'BYOK Free' : 'Free Demo'}</span>
+              {currentTier === 'PRO_PASS_UNLOCKED' ? (
+                <Crown className="w-3 h-3 text-amber-400" />
+              ) : currentTier === 'BYOK_UNLOCKED' ? (
+                <ShieldCheck className="w-3 h-3 text-emerald-400" />
+              ) : (
+                <Zap className="w-3 h-3 text-amber-400" />
+              )}
+              <span>
+                {currentTier === 'PRO_PASS_UNLOCKED'
+                  ? proUserData.proUnlockType === 'lifetime'
+                    ? 'Lifetime Pro'
+                    : 'Pro Pass'
+                  : currentTier === 'BYOK_UNLOCKED'
+                  ? 'BYOK Free'
+                  : 'Free Demo'}
+              </span>
             </button>
 
             {/* History Toggle */}
@@ -670,6 +699,7 @@ export const App: React.FC = () => {
       {isUpgradeModalOpen && (
         <UpgradeModal
           tier={currentTier}
+          proUserData={proUserData}
           onClose={() => setIsUpgradeModalOpen(false)}
           onOpenSettings={() => setIsSettingsModalOpen(true)}
         />

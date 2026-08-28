@@ -4,7 +4,9 @@ export type RecurrenceInterval = 'NONE' | 'DAILY' | 'WEEKLY' | 'MONTHLY' | 'YEAR
 
 export type AppScreen = 'DASHBOARD' | 'COMPLETED_HISTORY';
 
-export type UserTier = 'FREE_DEMO' | 'BYOK_UNLOCKED';
+export type UserTier = 'FREE_DEMO' | 'BYOK_UNLOCKED' | 'PRO_PASS_UNLOCKED';
+
+export * from './sync';
 
 export interface SubTask {
   id: string;

@@ -400,6 +400,29 @@
       saveBYOKConfig(config) {
         localStorage.setItem(STORAGE_KEYS.BYOK_CONFIG, JSON.stringify(config));
       },
+      getProUserData() {
+        try {
+          const raw = localStorage.getItem('tasker_ai_pro_user_data_v1');
+          if (raw) return JSON.parse(raw);
+        } catch (e) {}
+        return { isPro: false, proUnlockType: 'none', proExpiresAt: null };
+      },
+      saveProUserData(data) {
+        localStorage.setItem('tasker_ai_pro_user_data_v1', JSON.stringify(data));
+      },
+      isProUserActive() {
+        const pro = this.getProUserData();
+        if (pro.isPro) {
+          if (pro.proUnlockType === 'lifetime') return true;
+          if (pro.proUnlockType === 'rewarded_ad_pass') {
+            if (!pro.proExpiresAt) return true;
+            const ms = new Date(pro.proExpiresAt).getTime();
+            return !isNaN(ms) && ms > Date.now();
+          }
+          return true;
+        }
+        return false;
+      },
       incrementDemoUses() {
         const c = this.getBYOKConfig();
         c.demoAiUsesCount = (c.demoAiUsesCount || 0) + 1;
@@ -410,6 +433,7 @@
         localStorage.setItem(STORAGE_KEYS.CATEGORIES, JSON.stringify(DEFAULT_CATEGORIES));
         localStorage.setItem(STORAGE_KEYS.TASKS, JSON.stringify(DEFAULT_TASKS));
         localStorage.setItem(STORAGE_KEYS.BYOK_CONFIG, JSON.stringify(DEFAULT_BYOK_CONFIG));
+        localStorage.setItem('tasker_ai_pro_user_data_v1', JSON.stringify({ isPro: false, proUnlockType: 'none', proExpiresAt: null }));
       }
     };
 
@@ -830,13 +854,37 @@ Break down user goal into 3-5 sequential actionable milestones. Return ONLY a JS
           return null;
         } catch (e) { return null; }
       },
-      async saveToDrive(tasks, categories, brainDump, byokConfig) {
+      async saveToDrive(tasks, categories, brainDump, byokConfig, proUser) {
         const token = localStorage.getItem('tasker_ai_google_auth_token_v1');
         const { fileId, error } = await this.getOrCreateDriveFileId();
         if (!fileId || !token) return { success: false, error: error || 'Could not access Google Drive.' };
         try {
           const cfg = byokConfig || storageService.getBYOKConfig();
-          const data = { version: '1.0.0', lastSynced: new Date().toISOString(), tasks, categories, brainDump: brainDump || '', byokConfig: cfg };
+          const userStatus = proUser || storageService.getProUserData();
+          const formattedTasks = tasks.map(t => ({
+            ...t,
+            id: String(t.id),
+            categoryId: t.categoryId ? String(t.categoryId) : '',
+            title: t.title,
+            isCompleted: Boolean(t.isCompleted),
+            priority: (t.priority === 'HIGH' || t.priority === 'URGENT' ? 'High' : t.priority === 'LOW' ? 'Low' : 'Medium'),
+            createdAt: typeof t.createdAt === 'number' ? new Date(t.createdAt).toISOString() : String(t.createdAt || new Date().toISOString()),
+            updatedAt: new Date().toISOString()
+          }));
+          const formattedCategories = categories.map(c => ({
+            id: String(c.id),
+            name: c.name,
+            color: c.color || '#a855f7'
+          }));
+          const data = {
+            version: '1.0.0',
+            lastSynced: new Date().toISOString(),
+            user: userStatus,
+            categories: formattedCategories,
+            tasks: formattedTasks,
+            brainDump: brainDump || '',
+            byokConfig: cfg
+          };
           const resp = await fetch(`https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=media`, {
             method: 'PATCH',
             headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
@@ -887,6 +935,8 @@ Break down user goal into 3-5 sequential actionable milestones. Return ONLY a JS
       // Toast notification
       const [toast, setToast] = useState(null);
 
+      const [proUserData, setProUserData] = useState(storageService.getProUserData());
+
       const showToast = (msg, type = 'info') => {
         setToast({ msg, type });
         setTimeout(() => setToast(null), 4000);
@@ -896,6 +946,7 @@ Break down user goal into 3-5 sequential actionable milestones. Return ONLY a JS
         setTasks(storageService.getTasks());
         setCategories(storageService.getCategories());
         setByokConfig(storageService.getBYOKConfig());
+        setProUserData(storageService.getProUserData());
       };
 
       useEffect(() => {
@@ -907,6 +958,9 @@ Break down user goal into 3-5 sequential actionable milestones. Return ONLY a JS
           setUser(driveUser);
           googleDriveService.loadFromDrive().then(driveData => {
             if (driveData) {
+              if (driveData.user) {
+                storageService.saveProUserData(driveData.user);
+              }
               if (driveData.byokConfig?.apiKey && driveData.byokConfig.isValidated) {
                 storageService.saveBYOKConfig(driveData.byokConfig);
               }
@@ -925,6 +979,9 @@ Break down user goal into 3-5 sequential actionable milestones. Return ONLY a JS
           if (document.visibilityState === 'visible' && googleDriveService.getUser()) {
             googleDriveService.loadFromDrive().then(driveData => {
               if (driveData) {
+                if (driveData.user) {
+                  storageService.saveProUserData(driveData.user);
+                }
                 if (driveData.byokConfig?.apiKey && driveData.byokConfig.isValidated) {
                   storageService.saveBYOKConfig(driveData.byokConfig);
                 }
@@ -964,9 +1021,10 @@ Break down user goal into 3-5 sequential actionable milestones. Return ONLY a JS
       }, []);
 
       const currentTier = useMemo(() => {
+        if (storageService.isProUserActive()) return 'PRO_PASS_UNLOCKED';
         if (byokConfig.apiKey && byokConfig.isValidated) return 'BYOK_UNLOCKED';
         return 'FREE_DEMO';
-      }, [byokConfig]);
+      }, [byokConfig, proUserData]);
 
       const isCategoryLimitReached = currentTier === 'FREE_DEMO' && categories.length >= 3;
 
@@ -1134,12 +1192,16 @@ Break down user goal into 3-5 sequential actionable milestones. Return ONLY a JS
                 <button
                   onClick={() => setIsUpgradeOpen(true)}
                   className={`px-2.5 py-1 rounded-xl text-[11px] font-bold border transition-all ${
+                    currentTier === 'PRO_PASS_UNLOCKED' ? 'bg-amber-500/20 border-amber-400/50 text-amber-300' :
                     currentTier === 'BYOK_UNLOCKED' ? 'bg-emerald-950/60 border-emerald-500/50 text-emerald-300' :
                     'bg-amber-950/60 border-amber-500/50 text-amber-300'
                   }`}
-                  title="Unlock Full Features with Free BYOK"
+                  title={
+                    currentTier === 'PRO_PASS_UNLOCKED' ? (proUserData.proUnlockType === 'lifetime' ? 'Lifetime Pro Pass (Synced from Android)' : 'Rewarded Ad Pass (Synced from Android)') :
+                    currentTier === 'BYOK_UNLOCKED' ? 'BYOK Free Gemini API Key Active' : 'Free Demo Mode (3 Uses)'
+                  }
                 >
-                  {currentTier === 'BYOK_UNLOCKED' ? 'BYOK Free' : 'Free Demo'}
+                  {currentTier === 'PRO_PASS_UNLOCKED' ? '👑 Pro Pass' : currentTier === 'BYOK_UNLOCKED' ? '🛡️ BYOK Free' : '⚡ Free Demo'}
                 </button>
 
                 {currentScreen === 'DASHBOARD' && (

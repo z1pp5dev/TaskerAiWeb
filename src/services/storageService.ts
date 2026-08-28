@@ -1,10 +1,12 @@
-import { Category, TaskItem, BYOKConfig, SubTask, RecurrenceInterval, FREE_TIER_LIMITS } from '../types';
+import { Category, TaskItem, BYOKConfig, SubTask, RecurrenceInterval, FREE_TIER_LIMITS, Priority } from '../types';
+import { ProUserData } from '../types/sync';
 import { googleDriveService } from './googleDriveService';
 
 const STORAGE_KEYS = {
   TASKS: 'tasker_ai_tasks_v1',
   CATEGORIES: 'tasker_ai_categories_v1',
   BYOK_CONFIG: 'tasker_ai_byok_config_v1',
+  PRO_USER: 'tasker_ai_pro_user_data_v1',
   THEME: 'tasker_ai_theme_v1',
   NOTES: 'tasker_ai_notes_v1'
 };
@@ -228,7 +230,13 @@ class StorageService {
 
     this.autoSyncTimer = setTimeout(async () => {
       try {
-        await googleDriveService.saveToDrive(this.getTasks(), this.getCategories(), undefined, this.getBYOKConfig());
+        await googleDriveService.saveToDrive(
+          this.getTasks(),
+          this.getCategories(),
+          undefined,
+          this.getBYOKConfig(),
+          this.getProUserData()
+        );
       } catch (e) {
         console.warn('Background Google Drive sync failed:', e);
       }
@@ -458,6 +466,44 @@ class StorageService {
     return nextDate.getTime();
   }
 
+  // --- PRO USER DATA & REWARDED-PASS SHARING ---
+  getProUserData(): ProUserData {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEYS.PRO_USER);
+      if (raw) {
+        return JSON.parse(raw);
+      }
+    } catch (e) {}
+    return {
+      isPro: false,
+      proUnlockType: 'none',
+      proExpiresAt: null
+    };
+  }
+
+  saveProUserData(data: ProUserData): void {
+    try {
+      localStorage.setItem(STORAGE_KEYS.PRO_USER, JSON.stringify(data));
+      this.scheduleBackgroundSync();
+    } catch (e) {
+      console.error('Failed to save pro user data:', e);
+    }
+  }
+
+  isProUserActive(): boolean {
+    const pro = this.getProUserData();
+    if (pro.isPro) {
+      if (pro.proUnlockType === 'lifetime') return true;
+      if (pro.proUnlockType === 'rewarded_ad_pass') {
+        if (!pro.proExpiresAt) return true;
+        const expiresMs = new Date(pro.proExpiresAt).getTime();
+        return !isNaN(expiresMs) && expiresMs > Date.now();
+      }
+      return true;
+    }
+    return false;
+  }
+
   // --- SEAMLESS GOOGLE DRIVE SYNC & MERGE ---
   async syncAndMerge(): Promise<{ mergedTasksCount: number; mergedCategoriesCount: number; success: boolean; error?: string }> {
     if (!googleDriveService.getUser()) return { mergedTasksCount: 0, mergedCategoriesCount: 0, success: false, error: 'Not signed in' };
@@ -468,25 +514,34 @@ class StorageService {
       let localCategories = this.getCategories();
       let localTasks = this.getTasks();
       const localBYOK = this.getBYOKConfig();
+      const localPro = this.getProUserData();
 
       // 2. Fetch Google Drive data
       const driveData = await googleDriveService.loadFromDrive();
       const driveCategories = driveData?.categories || [];
       const driveTasks = driveData?.tasks || [];
       const driveBYOK = driveData?.byokConfig;
+      const drivePro = driveData?.user;
 
-      // Smart Sample Clean: If drive has real tasks and local only has the initial 3 sample mock tasks, discard mock tasks
-      const isLocalOnlySampleTasks = localTasks.length <= 3 && localTasks.every((t) => t.id.startsWith('task_demo_') || t.id.startsWith('task_1') || t.id.startsWith('task_2') || t.id.startsWith('task_3'));
-      if (isLocalOnlySampleTasks && driveTasks.length > 0) {
-        localTasks = [];
+      // 3. Merge Pro User Data (Android Rewarded Pass / Lifetime Pro)
+      let mergedPro = localPro;
+      if (drivePro) {
+        const isDriveProActive = drivePro.isPro && (
+          drivePro.proUnlockType === 'lifetime' ||
+          (drivePro.proUnlockType === 'rewarded_ad_pass' && (!drivePro.proExpiresAt || new Date(drivePro.proExpiresAt).getTime() > Date.now()))
+        );
+        const isLocalProActive = localPro.isPro && (
+          localPro.proUnlockType === 'lifetime' ||
+          (localPro.proUnlockType === 'rewarded_ad_pass' && (!localPro.proExpiresAt || new Date(localPro.proExpiresAt).getTime() > Date.now()))
+        );
+
+        if (isDriveProActive || (!isLocalProActive && drivePro.proUnlockType !== 'none')) {
+          mergedPro = drivePro;
+          localStorage.setItem(STORAGE_KEYS.PRO_USER, JSON.stringify(mergedPro));
+        }
       }
 
-      const isLocalOnlySampleCategories = localCategories.length <= 3 && localCategories.every((c) => ['cat_work', 'cat_personal', 'cat_health'].includes(c.id));
-      if (isLocalOnlySampleCategories && driveCategories.length > 0) {
-        localCategories = [];
-      }
-
-      // 3. Merge BYOK Config (Sync API Key across devices)
+      // 4. Merge BYOK Config (Sync API Key across devices)
       let mergedBYOK = localBYOK;
       if (driveBYOK && driveBYOK.apiKey && driveBYOK.isValidated) {
         if (!localBYOK.apiKey || !localBYOK.isValidated || (driveBYOK.lastValidatedAt || 0) >= (localBYOK.lastValidatedAt || 0)) {
@@ -497,20 +552,62 @@ class StorageService {
         mergedBYOK = localBYOK;
       }
 
-      // 4. Merge Categories
+      // 5. Normalize and merge tasks from Drive
+      const normalizedDriveTasks: TaskItem[] = driveTasks.map((t: any, idx: number) => {
+        let prio: Priority = 'MEDIUM';
+        if (t.priority === 'High' || t.priority === 'HIGH') prio = 'HIGH';
+        else if (t.priority === 'Low' || t.priority === 'LOW') prio = 'LOW';
+        else if (t.priority === 'URGENT') prio = 'URGENT';
+
+        let createdMs = Date.now();
+        if (typeof t.createdAt === 'number') createdMs = t.createdAt;
+        else if (t.createdAt) {
+          const parsed = new Date(t.createdAt).getTime();
+          if (!isNaN(parsed)) createdMs = parsed;
+        }
+
+        return {
+          id: String(t.id),
+          title: t.title,
+          description: t.description || '',
+          dueDate: t.dueDate ?? null,
+          priority: prio,
+          categoryId: t.categoryId ? String(t.categoryId) : null,
+          isCompleted: Boolean(t.isCompleted),
+          isRecurring: Boolean(t.isRecurring),
+          recurrenceInterval: t.recurrenceInterval || 'NONE',
+          hasAlarm: Boolean(t.hasAlarm),
+          sortOrder: typeof t.sortOrder === 'number' ? t.sortOrder : idx,
+          createdAt: createdMs,
+          subtasks: Array.isArray(t.subtasks) ? t.subtasks : []
+        };
+      });
+
+      // Discard initial sample tasks if drive has user tasks
+      const isLocalOnlySampleTasks = localTasks.length <= 3 && localTasks.every((t) => t.id.startsWith('task_demo_') || t.id.startsWith('task_1') || t.id.startsWith('task_2') || t.id.startsWith('task_3'));
+      if (isLocalOnlySampleTasks && normalizedDriveTasks.length > 0) {
+        localTasks = [];
+      }
+
+      const isLocalOnlySampleCategories = localCategories.length <= 3 && localCategories.every((c) => ['cat_work', 'cat_personal', 'cat_health'].includes(c.id));
+      if (isLocalOnlySampleCategories && driveCategories.length > 0) {
+        localCategories = [];
+      }
+
+      // Merge Categories
       const categoryMap = new Map<string, Category>();
-      driveCategories.forEach((c) => categoryMap.set(c.id, c));
+      driveCategories.forEach((c: any) => categoryMap.set(String(c.id), { id: String(c.id), name: c.name, color: c.color, icon: c.icon }));
       localCategories.forEach((localCat) => {
-        if (!categoryMap.has(localCat.id)) {
-          categoryMap.set(localCat.id, localCat);
+        if (!categoryMap.has(String(localCat.id))) {
+          categoryMap.set(String(localCat.id), localCat);
         }
       });
       const mergedCategories = Array.from(categoryMap.values());
       localStorage.setItem(STORAGE_KEYS.CATEGORIES, JSON.stringify(mergedCategories));
 
-      // 5. Merge Tasks
+      // Merge Tasks
       const taskMap = new Map<string, TaskItem>();
-      driveTasks.forEach((t) => taskMap.set(t.id, t));
+      normalizedDriveTasks.forEach((t) => taskMap.set(t.id, t));
       localTasks.forEach((localTask) => {
         if (!taskMap.has(localTask.id)) {
           taskMap.set(localTask.id, localTask);
@@ -520,7 +617,7 @@ class StorageService {
       localStorage.setItem(STORAGE_KEYS.TASKS, JSON.stringify(mergedTasks));
 
       // 6. Upload merged snapshot to Google Drive
-      const saveRes = await googleDriveService.saveToDrive(mergedTasks, mergedCategories, undefined, mergedBYOK);
+      const saveRes = await googleDriveService.saveToDrive(mergedTasks, mergedCategories, driveData?.brainDump || '', mergedBYOK, mergedPro);
 
       return {
         mergedTasksCount: mergedTasks.length,
@@ -544,7 +641,8 @@ class StorageService {
       const categories = this.getCategories();
       const tasks = this.getTasks();
       const byokConfig = this.getBYOKConfig();
-      const res = await googleDriveService.saveToDrive(tasks, categories, undefined, byokConfig);
+      const proUser = this.getProUserData();
+      const res = await googleDriveService.saveToDrive(tasks, categories, undefined, byokConfig, proUser);
       return res;
     } catch (e: any) {
       console.error('Failed manual sync to Google Drive:', e);
@@ -590,7 +688,10 @@ class StorageService {
     return config.demoAiUsesCount;
   }
 
-  canUseAi(config: BYOKConfig): { allowed: boolean; reason?: string } {
+  canUseAi(config: BYOKConfig): { allowed: boolean; reason?: string; isPro?: boolean } {
+    if (this.isProUserActive()) {
+      return { allowed: true, isPro: true };
+    }
     if (config.apiKey && config.isValidated) {
       return { allowed: true };
     }
@@ -599,7 +700,7 @@ class StorageService {
     }
     return {
       allowed: false,
-      reason: `You've used all ${FREE_TIER_LIMITS.MAX_DEMO_AI_USES} free AI trials. Enter your personal Gemini API Key in Settings to unlock unlimited use for free!`
+      reason: `You've used all ${FREE_TIER_LIMITS.MAX_DEMO_AI_USES} free AI trials. Enter your personal Gemini API Key in Settings or unlock a Pro Pass in the Android app to enjoy unlimited AI!`
     };
   }
 
@@ -608,6 +709,7 @@ class StorageService {
     localStorage.setItem(STORAGE_KEYS.CATEGORIES, JSON.stringify(DEFAULT_CATEGORIES));
     localStorage.setItem(STORAGE_KEYS.TASKS, JSON.stringify(DEFAULT_TASKS));
     localStorage.setItem(STORAGE_KEYS.BYOK_CONFIG, JSON.stringify(DEFAULT_BYOK_CONFIG));
+    localStorage.setItem(STORAGE_KEYS.PRO_USER, JSON.stringify({ isPro: false, proUnlockType: 'none', proExpiresAt: null }));
   }
 
   exportData(): string {
